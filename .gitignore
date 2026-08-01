@@ -1,2 +1,36 @@
-.env 
-.env 
+# ── Environment / secrets ───────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Local documentation (kept out of version control on request) ─────────
+docs/
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Database (local SQLite + WAL sidecar files) ──────────────────────────
+finance.db
+finance.db-wal
+finance.db-shm
+*.sqlite
+*.sqlite3
+
+# ── Generated artifacts ──────────────────────────────────────────────────
+financial_report*.pdf
+
+# ── Node / frontend build output ─────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+
+# ── Editor / OS noise ────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
