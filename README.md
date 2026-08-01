@@ -5,7 +5,7 @@
 ### AI-Powered Personal Financial Advisor
 
 A production-oriented **Flask + React** application that pairs deterministic financial-scoring
-engines with an LLM advisory layer (OpenAI `gpt-4o-mini`) to deliver personalised financial
+engines with an LLM advisory layer (**Groq**) to deliver personalised financial
 health assessments, AI-generated advisory reports, conversational guidance, and
 goal-feasibility simulations for Indian retail investors.
 
@@ -16,7 +16,7 @@ goal-feasibility simulations for Indian retail investors.
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![Vite](https://img.shields.io/badge/Vite-Frontend-646CFF?logo=vite&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
-![OpenAI](https://img.shields.io/badge/OpenAI-gpt--4o--mini-412991?logo=openai&logoColor=white)
+![Groq](https://img.shields.io/badge/Groq-LLM-F55036?logo=groq&logoColor=white)
 
 </div>
 
@@ -49,7 +49,9 @@ appetite, goals, and an optional EMI figure — and layers three independent eng
 1. **Deterministic financial-health scorer** — a 7-pillar, rule-based engine that produces a
    0–100 score with no AI involvement, so results are reproducible and explainable.
 2. **LLM advisory layer** — turns the scored profile into a structured, SEBI-advisor-style
-   report and a conversational chat assistant, grounded in the user's actual numbers.
+   report and a conversational chat assistant, grounded in the user's actual numbers. Powered
+   by **Groq** with per-service model routing (a high-capability model for the in-depth report,
+   a low-latency model for live chat).
 3. **Goal-feasibility simulator** — SIP (Systematic Investment Plan) annuity-due mathematics
    that projects Conservative / Balanced / Aggressive investment scenarios.
 
@@ -63,7 +65,7 @@ fully documented, rate-limited, API-key-protected REST API with an interactive S
 - **Financial Health Score** — 7-pillar rule-based engine (savings rate, expense control,
   emergency fund, debt-to-income, retirement adequacy, tax efficiency, surplus buffer).
 - **AI-Generated Advisory Reports** — structured, section-based reports grounded in the
-  user's real figures, produced via OpenAI.
+  user's real figures, produced via Groq (`openai/gpt-oss-120b` by default).
 - **Conversational Advisor Chat** — per-user chat with persistent history stored in SQLite.
 - **Goal Feasibility Simulator** — SIP PMT–based required-contribution calculator with three
   CAGR scenarios, feasibility scoring, and a recommended timeline.
@@ -100,12 +102,12 @@ flowchart LR
     subgraph SERVICES["Service Layer"]
         HS["health_service<br/>7-pillar scorer"]
         GS["goal_service<br/>SIP PMT engine"]
-        AS["ai_service<br/>OpenAI wrapper"]
+        AS["ai_service<br/>Groq wrapper"]
         PS["pdf_service<br/>ReportLab builder"]
     end
 
     subgraph EXTERNAL["External"]
-        OAI["OpenAI API<br/>gpt-4o-mini"]
+        OAI["Groq API<br/>report + chat models"]
     end
 
     subgraph DATA["SQLite — finance.db (WAL)"]
@@ -130,7 +132,7 @@ flowchart LR
 2. Route handlers validate incoming JSON against Marshmallow schemas, then delegate to the
    service layer.
 3. `health_service` computes a deterministic 0–100 score, `goal_service` runs SIP
-   projections, `ai_service` calls OpenAI, and `pdf_service` renders the final PDF.
+   projections, `ai_service` calls Groq, and `pdf_service` renders the final PDF.
 4. All persistent state lives in SQLite, accessed through a shared WAL-mode connection helper.
 
 > A deeper engineering write-up — including the data model, per-service diagrams, and a full
@@ -172,7 +174,7 @@ sequenceDiagram
 | API documentation | Flasgger (Swagger UI) |
 | Validation | Marshmallow |
 | Database | SQLite (WAL mode, foreign keys enforced) |
-| AI / LLM | OpenAI API (`gpt-4o-mini`) |
+| AI / LLM | Groq (`openai/gpt-oss-120b` report · `llama-3.1-8b-instant` chat) |
 | PDF generation | ReportLab |
 | Frontend | React 19, Vite, ESLint |
 | Config | python-dotenv |
@@ -201,7 +203,7 @@ FinPilot/
 ├── services/
 │   ├── health_service.py      # 7-pillar financial-health scoring engine
 │   ├── goal_service.py        # SIP PMT math, scenario simulation, feasibility scoring
-│   ├── ai_service.py          # OpenAI client wrapper, report + chat generation
+│   ├── ai_service.py          # Groq client wrapper, report + chat generation
 │   ├── pdf_service.py         # ReportLab PDF report builder
 │   └── profiling_service.py   # Standalone profile validation/normalization helpers
 ├── utils/
@@ -215,6 +217,10 @@ FinPilot/
 │   ├── package.json
 │   ├── vite.config.js
 │   └── eslint.config.js
+├── tests/                     # Offline unit tests (config + ai_service, Groq mocked)
+│   ├── test_config.py
+│   └── test_ai_service.py
+├── conftest.py                # Pytest bootstrap (sys.path + deterministic test env)
 └── docs/
     └── ARCHITECTURE.md        # Detailed architecture & production-readiness reference
 ```
@@ -226,7 +232,7 @@ FinPilot/
 ### Prerequisites
 
 - Python 3.10+
-- An OpenAI API key
+- A Groq API key
 - Node.js 18+ (for the frontend)
 
 ### 1. Clone the repository
@@ -252,13 +258,18 @@ pip install -r requirements.txt
 Create a `.env` file in the project root:
 
 ```env
-OPENAI_API_KEY=your-openai-api-key
+GROQ_API_KEY=your-groq-api-key
 API_SECRET_KEY=your-chosen-api-secret
 RATELIMIT_STORAGE_URI=memory://
+
+# Optional — per-service model overrides (defaults shown)
+GROQ_REPORT_MODEL=openai/gpt-oss-120b
+GROQ_CHAT_MODEL=llama-3.1-8b-instant
 ```
 
-> `OPENAI_API_KEY` and `API_SECRET_KEY` are **required** — the server refuses to start
+> `GROQ_API_KEY` and `API_SECRET_KEY` are **required** — the server refuses to start
 > without them. `RATELIMIT_STORAGE_URI` defaults to `memory://` (use a Redis URI in production).
+> The model variables are optional and fall back to the defaults shown above.
 
 Run the server:
 
@@ -284,10 +295,21 @@ npm run dev
 ```
 
 The dev server runs on Vite's default port (`http://localhost:5173`). It expects the API at
-`http://localhost:5000/api`; set the API key it sends via a `frontend/.env` file:
+`http://localhost:5000/api`; configure it via a `frontend/.env` file:
 
 ```env
+VITE_API_URL=http://127.0.0.1:5000/api
 VITE_API_KEY=your-chosen-api-secret
+```
+
+### 4. Running tests
+
+The backend ships with an offline unit-test suite (Groq API calls are mocked, so no key or
+network is required):
+
+```bash
+pip install pytest
+python -m pytest tests/ -v
 ```
 
 ---
@@ -394,7 +416,8 @@ to optimise the most frequent lookup and pagination patterns.
 - Replace the shared API key with per-user authentication and authorisation.
 - Migrate storage from SQLite to PostgreSQL and move rate-limit state to Redis for
   multi-instance deployments.
-- Add automated test coverage for the deterministic scoring and simulation engines.
+- Extend automated test coverage to the deterministic scoring and simulation engines
+  (config and AI-service layers are already unit-tested — see [`tests/`](tests/)).
 - Support live market data for CAGR assumptions instead of static tiers.
 
 ---

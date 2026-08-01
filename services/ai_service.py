@@ -1,9 +1,13 @@
-from openai import OpenAI
+import logging
+
+from groq import Groq
 from config import Config
 
-# Initialize OpenAI client
-client = OpenAI(
-    api_key=Config.OPENAI_API_KEY
+logger = logging.getLogger(__name__)
+
+# Initialize Groq client (OpenAI-compatible chat completions interface).
+client = Groq(
+    api_key=Config.GROQ_API_KEY
 )
 
 
@@ -33,13 +37,30 @@ Behavior Rules:
 
 
 # -------------------------------
-# OPENAI CALL WRAPPER
+# GROQ CALL WRAPPER
 # -------------------------------
-def ask_gpt(prompt):
+def ask_gpt(prompt, model=None):
+    """
+    Send a single-turn prompt to the Groq chat completions API.
+
+    Parameters
+    ----------
+    prompt : str
+        The user prompt to send alongside the system persona.
+    model : str, optional
+        Groq model id to use. Falls back to ``Config.GROQ_CHAT_MODEL`` when not
+        supplied, so callers that don't care about model choice stay simple.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(True, content)`` on success, ``(False, error_message)`` on failure.
+    """
+    selected_model = model or Config.GROQ_CHAT_MODEL
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=selected_model,
             temperature=0.7,
             max_tokens=1000,
             messages=[
@@ -56,8 +77,9 @@ def ask_gpt(prompt):
 
         return True, response.choices[0].message.content.strip()
 
-    except Exception as e:
-        return False, str(e)
+    except Exception as exc:
+        logger.exception("ask_gpt: Groq completion failed (model=%s)", selected_model)
+        return False, str(exc)
 
 
 # -------------------------------
@@ -114,7 +136,7 @@ Rules:
 - No generic textbook content.
 """
 
-    return ask_gpt(prompt)
+    return ask_gpt(prompt, model=Config.GROQ_REPORT_MODEL)
 
 
 # -------------------------------
@@ -154,4 +176,4 @@ Instructions:
 - Be concise and practical
 """
 
-    return ask_gpt(prompt)
+    return ask_gpt(prompt, model=Config.GROQ_CHAT_MODEL)
