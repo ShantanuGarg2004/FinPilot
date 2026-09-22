@@ -22,6 +22,21 @@ Goals:
 
 ## 2. Error taxonomy
 
+```mermaid
+flowchart TD
+  ERR[API / fetch failure] --> NET{Network / abort?}
+  NET -->|abort| SILENT[Silent — code aborted]
+  NET -->|offline / CORS / down| N0[network_error — error toast]
+  NET -->|got HTTP response| ST{status}
+
+  ST -->|401| U401[unauthorized]
+  ST -->|400| U400[validation_error]
+  ST -->|404| U404[not_found — EmptyState]
+  ST -->|429| U429[rate_limit_exceeded — warning + Retry]
+  ST -->|502 / 503 / 504| U5xx[upstream_error]
+  ST -->|other 5xx| USRV[server_error]
+```
+
 | Class | HTTP | Typical `code` | User meaning | UI treatment |
 |---|---|---|---|---|
 | **Network** | — | `network_error` | Offline / CORS / server down | Error toast; keep last good data |
@@ -32,6 +47,20 @@ Goals:
 | **Upstream AI** | 502/503/504 or 500 with code | `upstream_error` / `upstream_rate_limit` | Groq/provider issue | Error toast; suggest retry later |
 | **Server** | 500 | `server_error` | Unexpected backend bug | Error toast; no regenerate spam |
 | **Abort / cancel** | — | `aborted` | Navigation unmount | Silent |
+
+---
+
+## 2.1 Report load decision (critical)
+
+```mermaid
+flowchart TD
+  GET["GET /report/:id"] --> R{Response}
+  R -->|200| OK[Show report]
+  R -->|404| EMPTY[EmptyState: No report yet<br/>Generate CTA]
+  R -->|429| WARN[Warning banner + Retry<br/>Do NOT claim missing]
+  R -->|401| AUTH[Unauthorized toast]
+  R -->|5xx / network| FAIL[Error toast / banner<br/>Preserve last good report]
+```
 
 ---
 

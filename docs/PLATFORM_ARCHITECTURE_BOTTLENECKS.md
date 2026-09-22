@@ -8,23 +8,28 @@
 
 ## 1. Current platform topology
 
-```
-┌────────────────────┐         ┌──────────────────────────────────────┐
-│ Vite / React SPA   │  CORS   │ Flask (app.py)                        │
-│ localhost:5173     │────────▶│  Auth: X-API-Key                      │
-│ pages + hooks      │         │  Limiter: Flask-Limiter (memory://)   │
-└────────────────────┘         │  Blueprints: user / report / chat /   │
-                               │              goal                     │
-                               └───────────────┬──────────────────────┘
-                                               │
-                 ┌─────────────────────────────┼─────────────────────────────┐
-                 ▼                             ▼                             ▼
-        ┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-        │ SQLite          │         │ Groq API        │         │ ReportLab PDF   │
-        │ finance.db      │         │ report + chat   │         │ sync in-request │
-        │ users/reports/  │         │ max_tokens=1000 │         │                  │
-        │ chat_history    │         └─────────────────┘         └─────────────────┘
-        └─────────────────┘
+```mermaid
+flowchart TB
+  subgraph Client["Client"]
+    SPA["Vite / React SPA<br/>localhost:5173<br/>pages + hooks"]
+  end
+
+  subgraph API["Flask app.py"]
+    AUTH["Auth: X-API-Key"]
+    LIM["Limiter: Flask-Limiter<br/>memory://"]
+    BP["Blueprints<br/>user · report · chat · goal"]
+    AUTH --> LIM --> BP
+  end
+
+  SPA -->|"CORS + JSON"| AUTH
+
+  DB[("SQLite finance.db<br/>users · reports · chat_history")]
+  GROQ["Groq API<br/>report + chat<br/>max_tokens = 1000"]
+  PDF["ReportLab PDF<br/>sync in-request"]
+
+  BP --> DB
+  BP --> GROQ
+  BP --> PDF
 ```
 
 | Layer | Technology today | Role |
@@ -45,6 +50,26 @@
 
 `GET /users` · `GET /report/<id>` · `GET /chat/history/<id>` · `GET /download-report/<id>`
 
+```mermaid
+sequenceDiagram
+  participant UI as React SPA
+  participant API as Flask API
+  participant LIM as Rate limiter
+  participant DB as App DB
+
+  UI->>API: GET read endpoint + X-API-Key
+  API->>LIM: check route_class = read_*
+  alt allowed
+    LIM-->>API: allow + remaining
+    API->>DB: SELECT
+    DB-->>API: rows
+    API-->>UI: 200 JSON
+  else throttled
+    LIM-->>API: deny
+    API-->>UI: 429 + Retry-After
+  end
+```
+
 - Cost: SQLite read + JSON  
 - Latency target: &lt; 50–100 ms  
 - **Limiter must not be the failure mode** (today it is)
@@ -53,11 +78,30 @@
 
 `POST /generate-report`
 
-1. Load profile (SQLite)  
-2. Health score (CPU)  
-3. Groq report model (2–15+ s, token cost)  
-4. ReportLab PDF (CPU + memory)  
-5. Upsert report + PDF blob (SQLite write)
+```mermaid
+sequenceDiagram
+  participant UI as React SPA
+  participant API as Flask API
+  participant LIM as Rate limiter
+  participant DB as App DB
+  participant HS as Health service
+  participant AI as Groq
+  participant PDF as ReportLab
+
+  UI->>API: POST /generate-report
+  API->>LIM: check llm_report
+  alt denied
+    LIM-->>API: deny
+    API-->>UI: 429
+  else allowed
+    API->>DB: load profile
+    API->>HS: calculate_health_score
+    API->>AI: generate report (2–15s+)
+    API->>PDF: build PDF (sync)
+    API->>DB: upsert health + ai_report + pdf_blob
+    API-->>UI: 200 { health, ai_report }
+  end
+```
 
 `POST /chat` — Groq chat model + history read/write  
 `POST /goal-plan` — CPU math only (lighter)
@@ -209,22 +253,27 @@ With SQL fixed-window UPSERT on PostgreSQL/MySQL for 100 users:
 
 ## 6. Target production architecture (limiter-friendly)
 
-```
-                    ┌─────────────┐
-                    │  CDN / TLS  │
-                    └──────┬──────┘
-                           ▼
-                    ┌─────────────┐
-                    │  API tier   │  (N gunicorn workers)
-                    │  Auth+Limit │──▶ PostgreSQL (rate_limit_*)
-                    └──────┬──────┘
-           ┌───────────────┼───────────────┐
-           ▼               ▼               ▼
-    PostgreSQL         Job queue        Groq API
-    (app data)      (report PDF opt.)   (external)
-           │
-           ▼
-    Object storage (PDF blobs)   ← optional near-term local disk
+```mermaid
+flowchart TB
+  CDN["CDN / TLS"]
+
+  subgraph API["API tier — N gunicorn workers"]
+    AUTH_LIM["Auth + RateLimitGateway"]
+  end
+
+  RLDB[("PostgreSQL<br/>rate_limit_*")]
+  APPDB[("PostgreSQL<br/>app data")]
+  QUEUE["Job queue<br/>report PDF optional"]
+  GROQ["Groq API<br/>external"]
+  OBJ["Object storage<br/>PDF blobs<br/>or local disk near-term"]
+
+  CDN --> AUTH_LIM
+  AUTH_LIM --> RLDB
+  AUTH_LIM --> APPDB
+  AUTH_LIM --> QUEUE
+  AUTH_LIM --> GROQ
+  APPDB --> OBJ
+  QUEUE --> OBJ
 ```
 
 **Ordering of investments (so limiter works end-to-end):**

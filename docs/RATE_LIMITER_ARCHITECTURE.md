@@ -38,25 +38,47 @@ Today (`extensions.py` + Flask-Limiter defaults):
 
 ## 3. Target architecture (future-proof)
 
-```
-┌──────────────┐     ┌─────────────────────────────────────────────┐
-│ React SPA    │────▶│ Flask API (gunicorn / waitress workers)     │
-│ + X-API-Key  │     │  1. OPTIONS? → skip limiter                 │
-└──────────────┘     │  2. Auth middleware (API key)               │
-                     │  3. RateLimitGateway                         │
-                     │       ├─ PolicyRegistry (route class)       │
-                     │       ├─ KeyBuilder (api_key + class + id)  │
-                     │       └─ RateLimitStore (interface)         │
-                     │              ├─ SqlRateLimitStore (PG/MySQL) │
-                     │              └─ RedisRateLimitStore (later)  │
-                     │  4. Route handler / services                │
-                     └─────────────────────────────────────────────┘
-                                        │
-                                        ▼
-                     ┌─────────────────────────────────────────────┐
-                     │ Rate-limit DB (PostgreSQL preferred)        │
-                     │  rate_limit_buckets / rate_limit_events     │
-                     └─────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph Client["Client"]
+    SPA["React SPA<br/>X-API-Key"]
+  end
+
+  subgraph API["Flask API — gunicorn / waitress workers"]
+    direction TB
+    OPT{"OPTIONS?"}
+    AUTH["Auth middleware<br/>API key"]
+    GW["RateLimitGateway"]
+    ROUTES["Route handlers / services"]
+
+    OPT -->|yes — skip limiter| ROUTES
+    OPT -->|no| AUTH --> GW --> ROUTES
+  end
+
+  subgraph GatewayInternals["RateLimitGateway internals"]
+    direction LR
+    POL["PolicyRegistry<br/>route class + quota"]
+    KEY["KeyBuilder<br/>api_key + class + user_id"]
+    STORE["RateLimitStore interface"]
+  end
+
+  subgraph Stores["Storage adapters"]
+    direction LR
+    SQL["SqlRateLimitStore<br/>PostgreSQL / MySQL"]
+    REDIS["RedisRateLimitStore<br/>future"]
+  end
+
+  subgraph RLDB["Rate-limit DB"]
+    TABLES["rate_limit_buckets<br/>rate_limit_events"]
+  end
+
+  SPA --> OPT
+  GW --- POL
+  GW --- KEY
+  GW --- STORE
+  STORE --> SQL
+  STORE -.-> REDIS
+  SQL --> TABLES
 ```
 
 ### 3.1 Components
@@ -106,6 +128,16 @@ LLM: 100 users each generating one report in a minute would need `llm_report` �
 ## 5. SQL storage design (PostgreSQL preferred; MySQL OK)
 
 ### 5.1 Algorithm: fixed-window counter (simple, production-adequate)
+
+```mermaid
+flowchart TD
+  REQ[Incoming request] --> KEY[Build bucket_key]
+  KEY --> WIN[Resolve window_start]
+  WIN --> UPSERT["UPSERT hit_count += 1"]
+  UPSERT --> CHK{hit_count > limit?}
+  CHK -->|yes| DENY["Deny 429<br/>Retry-After = reset_at"]
+  CHK -->|no| ALLOW["Allow<br/>return remaining + reset_at"]
+```
 
 For each `(bucket_key, window_start)`:
 
