@@ -6,13 +6,14 @@ from extensions import limiter
 from schemas import goal_plan_schema
 from services.goal_service import calculate_goal_plan
 from routes.user_routes import get_user_by_id
+import config as app_config
 
 logger  = logging.getLogger(__name__)
 goal_bp = Blueprint("goal", __name__)
 
 
 @goal_bp.route("/goal-plan", methods=["POST"])
-@limiter.limit("20 per minute")
+@limiter.limit(lambda: app_config.Config.RATELIMIT_GOAL)
 def goal_plan():
     """
     Goal Feasibility Simulator API

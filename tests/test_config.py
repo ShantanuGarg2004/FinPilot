@@ -39,7 +39,20 @@ def test_validate_no_longer_requires_openai_key(monkeypatch):
 
 def test_per_service_models_configured():
     assert config.Config.GROQ_REPORT_MODEL == "openai/gpt-oss-120b"
-    assert config.Config.GROQ_CHAT_MODEL == "llama-3.1-8b-instant"
+    assert config.Config.GROQ_CHAT_MODEL == "openai/gpt-oss-20b"
+
+
+def test_token_budgets_split_for_report_and_chat():
+    assert config.Config.GROQ_REPORT_MAX_TOKENS >= 3500
+    assert config.Config.GROQ_CHAT_MAX_TOKENS >= 1200
+    assert config.Config.GROQ_REPORT_MAX_TOKENS > config.Config.GROQ_CHAT_MAX_TOKENS
+
+
+def test_ratelimit_defaults_have_no_global_hour_on_config():
+    # Wave 0: quotas are per-route strings; storage defaults to memory://
+    assert config.Config.RATELIMIT_STORAGE_URI.startswith("memory")
+    assert "per minute" in config.Config.RATELIMIT_READ
+    assert "per minute" in config.Config.RATELIMIT_LLM_REPORT
 
 
 def test_model_defaults_fall_back_when_env_absent(monkeypatch):
@@ -56,7 +69,7 @@ def test_model_defaults_fall_back_when_env_absent(monkeypatch):
     reloaded = importlib.reload(config)
     try:
         assert reloaded.Config.GROQ_REPORT_MODEL == "openai/gpt-oss-120b"
-        assert reloaded.Config.GROQ_CHAT_MODEL == "llama-3.1-8b-instant"
+        assert reloaded.Config.GROQ_CHAT_MODEL == "openai/gpt-oss-20b"
     finally:
         # Restore env + module state for any subsequent tests.
         monkeypatch.undo()

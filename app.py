@@ -1,6 +1,7 @@
 import logging
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_limiter.errors import RateLimitExceeded
 from flasgger import Swagger
 
 from extensions import limiter
@@ -25,7 +26,7 @@ def create_app():
     app = Flask(__name__)
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-    # Attach rate limiter
+    # Attach rate limiter (OPTIONS exempt via extensions.request_filter)
     limiter.init_app(app)
 
     # Init DB
@@ -36,7 +37,9 @@ def create_app():
     def require_api_key():
         if request.method == "OPTIONS":
             return
-        open_paths = ("/", "/apidocs/", "/apispec.json", "/flasgger_static")
+        open_paths = ("/apidocs/", "/apispec.json", "/flasgger_static")
+        if request.path == "/" or request.path.rstrip("/") == "/api/health":
+            return
         if any(request.path.startswith(p) for p in open_paths):
             return
         if not request.path.startswith("/api"):
@@ -45,7 +48,35 @@ def create_app():
         client_key = request.headers.get("X-API-Key", "")
         if client_key != Config.API_SECRET_KEY:
             logger.warning("Rejected request — bad API key from %s", request.remote_addr)
-            return jsonify({"error": "Unauthorised — invalid or missing X-API-Key header"}), 401
+            return jsonify({
+                "error": "Unauthorised — invalid or missing X-API-Key header",
+                "code": "unauthorized",
+            }), 401
+
+    # ── Wave 0.9: structured 429 JSON for the SPA ─────────────────────────
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limit(exc: RateLimitExceeded):
+        retry_after = None
+        try:
+            # Flask-Limiter may attach Retry-After via the HTTPException headers.
+            for item in exc.get_headers() or []:
+                if str(item[0]).lower() == "retry-after":
+                    retry_after = int(item[1])
+                    break
+        except Exception:
+            retry_after = None
+
+        body = {
+            "error": "Rate limit exceeded",
+            "code": "rate_limit_exceeded",
+            "retry_after": retry_after,
+            "limit": str(exc.description) if exc.description else None,
+        }
+        resp = jsonify(body)
+        resp.status_code = 429
+        if retry_after is not None:
+            resp.headers["Retry-After"] = str(retry_after)
+        return resp
 
     # ── Swagger ───────────────────────────────────────────────────────────
     swagger_config = {
@@ -59,18 +90,29 @@ def create_app():
     }
     Swagger(app, config=swagger_config)
 
-    # ── Home ──────────────────────────────────────────────────────────────
     @app.route("/")
     def home():
         return "AI Financial Advisor Backend Running 🚀"
 
-    # ── Blueprints ────────────────────────────────────────────────────────
-    app.register_blueprint(user_bp,   url_prefix="/api")
-    app.register_blueprint(report_bp, url_prefix="/api")
-    app.register_blueprint(chat_bp,   url_prefix="/api")
-    app.register_blueprint(goal_bp,   url_prefix="/api")
+    @app.route("/api/health")
+    def health():
+        """Liveness probe — exempt from API-key auth and rate limits."""
+        return jsonify({
+            "status": "ok",
+            "ratelimit_enabled": Config.RATELIMIT_ENABLED,
+            "ratelimit_storage": Config.RATELIMIT_STORAGE_URI.split("://", 1)[0],
+        })
 
-    logger.info("App ready — rate limiting and API-key auth active.")
+    app.register_blueprint(user_bp, url_prefix="/api")
+    app.register_blueprint(report_bp, url_prefix="/api")
+    app.register_blueprint(chat_bp, url_prefix="/api")
+    app.register_blueprint(goal_bp, url_prefix="/api")
+
+    logger.info(
+        "App ready — rate limiting enabled=%s storage=%s",
+        Config.RATELIMIT_ENABLED,
+        Config.RATELIMIT_STORAGE_URI,
+    )
     return app
 
 

@@ -2,9 +2,8 @@
 .env
 .env.*
 !.env.example
-
-# ── Local documentation (kept out of version control on request) ─────────
-docs/
+# Cursor local artifacts / MCP secrets — never commit
+.cursor/
 
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
@@ -23,6 +22,7 @@ finance.db-shm
 
 # ── Generated artifacts ──────────────────────────────────────────────────
 financial_report*.pdf
+frontend/shots/
 
 # ── Node / frontend build output ─────────────────────────────────────────
 node_modules/
