@@ -1,62 +1,96 @@
-/* ── Reset & Base ───────────────────────────────────────── */
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #050505;
+    color: #f4f7fb;
+    font-family: "Inter", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: "Manrope", "Inter", sans-serif;
+  }
+
+  .material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+    user-select: none;
+  }
 }
 
-html {
-  font-size: 16px;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+@layer components {
+  .glass-panel {
+    background: rgba(22, 22, 26, 0.78);
+    backdrop-filter: blur(14px);
+    border: 1px solid #2a2a32;
+  }
+
+  .glass-card {
+    background: #16161a;
+    border: 1px solid #2a2a32;
+  }
+
+  /* Emerald value gradient for gauges / key metrics */
+  .accent-gradient-text {
+    background: linear-gradient(135deg, #22c995 0%, #18b981 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .accent-glow {
+    box-shadow: 0 0 0 1px rgba(24, 185, 129, 0.2), 0 8px 24px rgba(24, 185, 129, 0.12);
+  }
 }
 
-body {
-  background: #080b10;
-  color: #e8eaf0;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  line-height: 1.5;
-}
-
-#root {
-  width: 100%;
-  min-height: 100vh;
-}
-
-/* ── Scrollbar ──────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #050505;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 99px;
+  background: #2a2a32;
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: #9aa8bc;
 }
 
-/* ── Links ──────────────────────────────────────────────── */
-a {
-  color: #C8A96E;
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-/* ── Focus ring ─────────────────────────────────────────── */
-:focus-visible {
-  outline: 2px solid rgba(200, 169, 110, 0.5);
-  outline-offset: 2px;
-}
-
-/* ── Selection ──────────────────────────────────────────── */
 ::selection {
-  background: rgba(200, 169, 110, 0.2);
-  color: #e8eaf0;
+  background: rgba(24, 185, 129, 0.25);
+  color: #f4f7fb;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.md-body * {
+  font-family: "Inter", sans-serif;
+}
+.md-body strong {
+  color: #f4f7fb;
+  font-weight: 600;
+}
+.md-body em {
+  color: #9aa8bc;
+  font-style: italic;
+}
+.md-body a {
+  color: #6b9bcf;
+  text-decoration: none;
 }

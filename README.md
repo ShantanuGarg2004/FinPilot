@@ -174,7 +174,7 @@ sequenceDiagram
 | API documentation | Flasgger (Swagger UI) |
 | Validation | Marshmallow |
 | Database | SQLite (WAL mode, foreign keys enforced) |
-| AI / LLM | Groq (`openai/gpt-oss-120b` report · `llama-3.1-8b-instant` chat) |
+| AI / LLM | Groq (`openai/gpt-oss-120b` report · `openai/gpt-oss-20b` chat) |
 | PDF generation | ReportLab |
 | Frontend | React 19, Vite, ESLint |
 | Config | python-dotenv |
@@ -264,7 +264,7 @@ RATELIMIT_STORAGE_URI=memory://
 
 # Optional — per-service model overrides (defaults shown)
 GROQ_REPORT_MODEL=openai/gpt-oss-120b
-GROQ_CHAT_MODEL=llama-3.1-8b-instant
+GROQ_CHAT_MODEL=openai/gpt-oss-20b
 ```
 
 > `GROQ_API_KEY` and `API_SECRET_KEY` are **required** — the server refuses to start

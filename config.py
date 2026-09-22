@@ -10,7 +10,7 @@ class Config:
     # for each service's role: a high-capability model for the in-depth
     # advisory report, and a low-latency model for interactive chat.
     GROQ_REPORT_MODEL = os.getenv("GROQ_REPORT_MODEL", "openai/gpt-oss-120b")
-    GROQ_CHAT_MODEL   = os.getenv("GROQ_CHAT_MODEL", "llama-3.1-8b-instant")
+    GROQ_CHAT_MODEL   = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b")
 
     # Secret key clients must send as X-API-Key header to reach the API.
     # Set this in your .env file. If absent, the server refuses to start.

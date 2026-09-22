@@ -39,7 +39,7 @@ def test_validate_no_longer_requires_openai_key(monkeypatch):
 
 def test_per_service_models_configured():
     assert config.Config.GROQ_REPORT_MODEL == "openai/gpt-oss-120b"
-    assert config.Config.GROQ_CHAT_MODEL == "llama-3.1-8b-instant"
+    assert config.Config.GROQ_CHAT_MODEL == "openai/gpt-oss-20b"
 
 
 def test_model_defaults_fall_back_when_env_absent(monkeypatch):
@@ -56,7 +56,7 @@ def test_model_defaults_fall_back_when_env_absent(monkeypatch):
     reloaded = importlib.reload(config)
     try:
         assert reloaded.Config.GROQ_REPORT_MODEL == "openai/gpt-oss-120b"
-        assert reloaded.Config.GROQ_CHAT_MODEL == "llama-3.1-8b-instant"
+        assert reloaded.Config.GROQ_CHAT_MODEL == "openai/gpt-oss-20b"
     finally:
         # Restore env + module state for any subsequent tests.
         monkeypatch.undo()
