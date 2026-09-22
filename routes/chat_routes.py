@@ -7,6 +7,7 @@ from schemas import chat_schema
 from services.ai_service import chat_with_advisor
 from routes.user_routes import get_user_by_id
 from database.db import get_connection
+import config as app_config
 
 logger  = logging.getLogger(__name__)
 chat_bp = Blueprint("chat", __name__)
@@ -53,7 +54,7 @@ def _clear_history(user_id: int) -> None:
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @chat_bp.route("/chat", methods=["POST"])
-@limiter.limit("15 per minute")
+@limiter.limit(lambda: app_config.Config.RATELIMIT_LLM_CHAT)
 def chat():
     """
     Chat with AI Financial Advisor
@@ -128,6 +129,7 @@ def chat():
 
 
 @chat_bp.route("/chat/history/<int:user_id>", methods=["GET"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def get_chat_history(user_id: int):
     """
     Fetch stored chat history for a user.
@@ -155,6 +157,7 @@ def get_chat_history(user_id: int):
 
 
 @chat_bp.route("/chat/history/<int:user_id>", methods=["DELETE"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_WRITE_PROFILE)
 def clear_chat_history(user_id: int):
     """
     Clear all chat history for a user.

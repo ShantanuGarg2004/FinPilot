@@ -14,6 +14,7 @@ from services.ai_service import generate_financial_report
 from services.pdf_service import generate_pdf_report
 from routes.user_routes import get_user_by_id
 from database.db import get_connection
+import config as app_config
 
 logger    = logging.getLogger(__name__)
 report_bp = Blueprint("report", __name__)
@@ -67,6 +68,7 @@ def _load_pdf_blob_from_db(user_id: int) -> bytes | None:
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @report_bp.route("/report/<int:user_id>", methods=["GET"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def get_stored_report(user_id: int):
     """
     Fetch a previously generated report.
@@ -91,7 +93,7 @@ def get_stored_report(user_id: int):
 
 
 @report_bp.route("/generate-report", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit(lambda: app_config.Config.RATELIMIT_LLM_REPORT)
 def generate_report():
     """
     Generate (or regenerate) a financial report.
@@ -191,6 +193,7 @@ def generate_report():
 
 
 @report_bp.route("/download-report/<int:user_id>", methods=["GET"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def download_report(user_id: int):
     """
     Download the stored PDF directly from the database.

@@ -2,8 +2,10 @@ import logging
 from flask import Blueprint, request, jsonify
 from marshmallow import ValidationError
 
+from extensions import limiter
 from schemas import profile_schema
 from database.db import get_connection
+import config as app_config
 
 logger  = logging.getLogger(__name__)
 user_bp = Blueprint("user", __name__)
@@ -44,6 +46,7 @@ def get_all_users():
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @user_bp.route("/users", methods=["GET"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def list_users():
     """
     List all saved user profiles.
@@ -59,6 +62,7 @@ def list_users():
 
 
 @user_bp.route("/profile", methods=["POST"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_WRITE_PROFILE)
 def create_profile():
     """
     Create User Profile
@@ -154,6 +158,7 @@ def create_profile():
 
 
 @user_bp.route("/profile/<int:user_id>", methods=["DELETE"])
+@limiter.limit(lambda: app_config.Config.RATELIMIT_WRITE_PROFILE)
 def delete_profile(user_id: int):
     """
     Delete a user profile and their associated report.
