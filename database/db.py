@@ -1,6 +1,8 @@
 import sqlite3
 import logging
 
+from config import Config
+
 logger  = logging.getLogger(__name__)
 DB_NAME = "finance.db"
 
@@ -18,5 +20,7 @@ def get_connection() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")   # Write-Ahead Logging
     conn.execute("PRAGMA foreign_keys=ON")    # enforce FK constraints
     conn.execute("PRAGMA synchronous=NORMAL") # safe + faster than FULL with WAL
+    # Wait briefly for the single writer instead of failing immediately under load.
+    conn.execute(f"PRAGMA busy_timeout={int(Config.SQLITE_BUSY_TIMEOUT_MS)}")
 
     return conn

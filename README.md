@@ -287,6 +287,8 @@ Run the server:
 python app.py
 ```
 
+Production uses several workers so one slow Groq call does not block every reader. See `docs/CAPACITY_RUNBOOK.md`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`). Defaults are 6 workers, a 90s Groq timeout, and a 120s worker timeout.
+
 - API base: `http://127.0.0.1:5000`
 - Interactive docs: `http://127.0.0.1:5000/apidocs/`
 

@@ -248,6 +248,10 @@ flowchart TB
 - [ ] No worker deadlocks under LLM cap  
 - [ ] Chaos: kill worker mid-generate → other workers healthy; limiter intact  
 
+**Hardening landed 2026-09-23** (busy timeout, Groq/worker timeouts, worker formula, read-burst script). See `docs/CAPACITY_RUNBOOK.md` and `docs/testing_reports/WAVE3_IMPLEMENTATION_AND_TEST_REPORT.md`.
+
+Deferred until a load test shows they are required: report job queue (3.3), app SQLite → PostgreSQL (3.5), app-DB pool (3.6).
+
 ---
 
 ## 7. Wave 4 — Optional hardening

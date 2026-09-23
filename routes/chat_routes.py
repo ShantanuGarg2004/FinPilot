@@ -4,7 +4,7 @@ from marshmallow import ValidationError
 
 from extensions import limiter
 from schemas import chat_schema
-from services.ai_service import chat_with_advisor
+from services.ai_service import chat_with_advisor, http_status_for_ai_code
 from routes.user_routes import get_user_by_id
 from database.db import get_connection
 import config as app_config
@@ -120,8 +120,7 @@ def chat():
                 "error": response_text.get("error") or "AI chat failed",
                 "code": code,
             }
-            http = 503 if code in ("upstream_rate_limit", "upstream_error") else 500
-            return jsonify(body), http
+            return jsonify(body), http_status_for_ai_code(code)
         return jsonify({"error": str(response_text), "code": "upstream_error"}), 503
 
     try:

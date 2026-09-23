@@ -34,10 +34,11 @@ def create_tables():
                              REFERENCES users(id) ON DELETE CASCADE,
             health_json  TEXT    NOT NULL,
             ai_report    TEXT    NOT NULL,
-            pdf_blob     BLOB    NOT NULL,
+            pdf_blob     BLOB,
             generated_at TEXT    DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    _ensure_pdf_blob_nullable(cursor)
 
     # ── chat_history ───────────────────────────────────────────────────────
     cursor.execute("""
@@ -68,3 +69,44 @@ def create_tables():
     conn.commit()
     conn.close()
     logger.info("Database tables and indexes verified / created.")
+
+
+def _pdf_blob_notnull(cursor) -> bool:
+    cursor.execute("PRAGMA table_info(reports)")
+    for row in cursor.fetchall():
+        if row["name"] == "pdf_blob":
+            return bool(row["notnull"])
+    return False
+
+
+def _ensure_pdf_blob_nullable(cursor) -> None:
+    """SQLite cannot ALTER a column to drop NOT NULL; rebuild reports when needed."""
+    if not _pdf_blob_notnull(cursor):
+        return
+
+    logger.info("Migration: rebuilding reports so pdf_blob is nullable")
+    cursor.execute("PRAGMA foreign_keys=OFF")
+    cursor.execute("""
+        CREATE TABLE reports_nullable (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id      INTEGER NOT NULL UNIQUE
+                             REFERENCES users(id) ON DELETE CASCADE,
+            health_json  TEXT    NOT NULL,
+            ai_report    TEXT    NOT NULL,
+            pdf_blob     BLOB,
+            generated_at TEXT    DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO reports_nullable (id, user_id, health_json, ai_report, pdf_blob, generated_at)
+        SELECT id, user_id, health_json, ai_report,
+               CASE
+                   WHEN pdf_blob IS NULL OR length(pdf_blob) = 0 THEN NULL
+                   ELSE pdf_blob
+               END,
+               generated_at
+        FROM reports
+    """)
+    cursor.execute("DROP TABLE reports")
+    cursor.execute("ALTER TABLE reports_nullable RENAME TO reports")
+    cursor.execute("PRAGMA foreign_keys=ON")

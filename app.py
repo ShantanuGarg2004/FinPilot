@@ -10,7 +10,7 @@ from routes.report_routes import report_bp
 from routes.chat_routes import chat_bp
 from routes.goal_routes import goal_bp
 from database.models import create_tables
-from config import Config
+from config import Config, recommended_worker_count
 from services.rate_limit import build_gateway
 from services.rate_limit.gateway import get_gateway, uses_custom_gateway
 
@@ -135,6 +135,10 @@ def create_app():
             "ratelimit_backend": Config.RATELIMIT_STORAGE_BACKEND,
             "ratelimit_store_ok": store_ok,
             "ratelimit_storage": Config.RATELIMIT_STORAGE_URI.split("://", 1)[0],
+            "groq_timeout_seconds": Config.GROQ_TIMEOUT_SECONDS,
+            "worker_timeout_seconds": Config.WORKER_TIMEOUT_SECONDS,
+            "recommended_workers": recommended_worker_count(),
+            "sqlite_busy_timeout_ms": Config.SQLITE_BUSY_TIMEOUT_MS,
         }), (200 if status == "ok" else 503)
 
     app.register_blueprint(user_bp, url_prefix="/api")

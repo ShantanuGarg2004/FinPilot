@@ -31,6 +31,13 @@ class Config:
     # Wave 0: split token budgets (report needs full 6-section output).
     GROQ_REPORT_MAX_TOKENS = _env_int("GROQ_REPORT_MAX_TOKENS", 4096)
     GROQ_CHAT_MAX_TOKENS = _env_int("GROQ_CHAT_MAX_TOKENS", 1500)
+    # Wave 3: Groq call budget. Worker/proxy timeout must be larger than this.
+    GROQ_TIMEOUT_SECONDS = _env_int("GROQ_TIMEOUT_SECONDS", 90)
+    WORKER_TIMEOUT_SECONDS = _env_int("WORKER_TIMEOUT_SECONDS", 120)
+    # In-flight LLM calls the process tier should absorb, plus spare workers for reads.
+    PEAK_CONCURRENT_LLM = _env_int("PEAK_CONCURRENT_LLM", 4)
+    WORKER_HEADROOM = _env_int("WORKER_HEADROOM", 2)
+    SQLITE_BUSY_TIMEOUT_MS = _env_int("SQLITE_BUSY_TIMEOUT_MS", 5000)
 
     # Secret key clients must send as X-API-Key header to reach the API.
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")
@@ -68,3 +75,18 @@ class Config:
                     "RATELIMIT_STORAGE_BACKEND=sql requires RATELIMIT_DATABASE_URL "
                     "(PostgreSQL SQLAlchemy URL)."
                 )
+        if cls.WORKER_TIMEOUT_SECONDS <= cls.GROQ_TIMEOUT_SECONDS:
+            raise EnvironmentError(
+                "WORKER_TIMEOUT_SECONDS must be greater than GROQ_TIMEOUT_SECONDS "
+                "so a slow Groq call returns upstream_timeout instead of a worker kill."
+            )
+
+
+def recommended_worker_count(
+    peak_concurrent_llm: int | None = None,
+    headroom: int | None = None,
+) -> int:
+    """workers ≈ peak in-flight LLM calls + headroom for cheap reads."""
+    peak = Config.PEAK_CONCURRENT_LLM if peak_concurrent_llm is None else peak_concurrent_llm
+    extra = Config.WORKER_HEADROOM if headroom is None else headroom
+    return max(2, int(peak) + int(extra))

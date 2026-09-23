@@ -10,7 +10,7 @@ from marshmallow import ValidationError
 from extensions import limiter
 from schemas import generate_report_schema
 from services.health_service import calculate_health_score
-from services.ai_service import generate_financial_report
+from services.ai_service import generate_financial_report, http_status_for_ai_code
 from services.pdf_service import generate_pdf_report
 from routes.user_routes import get_user_by_id
 from database.db import get_connection
@@ -28,8 +28,8 @@ def _save_report_to_db(
     ai_report: str,
     pdf_bytes: bytes | None = None,
 ) -> None:
-    """Persist health + AI text. Empty pdf_bytes means advisory saved without PDF."""
-    blob = pdf_bytes if pdf_bytes is not None else b""
+    """Persist health + AI text. pdf_bytes=None stores NULL until a PDF exists."""
+    blob = pdf_bytes if pdf_bytes else None
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
@@ -99,8 +99,7 @@ def _ai_failure_response(result):
             "error": result.get("error") or "AI generation failed",
             "code": code,
         }
-        status = 503 if code in ("upstream_rate_limit", "upstream_error") else 500
-        return jsonify(body), status
+        return jsonify(body), http_status_for_ai_code(code)
     return jsonify({"error": str(result), "code": "upstream_error"}), 500
 
 

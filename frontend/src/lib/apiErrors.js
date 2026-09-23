@@ -66,6 +66,8 @@ export function toApiError(input, res = null, data = null) {
     message = retryAfter
       ? `Too many requests. Try again in ${retryAfter}s.`
       : "Too many requests. Please wait a moment and try again.";
+  } else if (code === "upstream_timeout") {
+    message = "The AI provider took too long. Please retry.";
   } else if (code === "upstream_rate_limit") {
     message = "AI provider rate limit hit. Please wait and retry.";
   } else if (code === "upstream_error") {
@@ -84,7 +86,7 @@ export function toastTypeForError(err) {
   const e = err instanceof ApiError ? err : toApiError(err);
   if (e.code === "aborted") return null;
   if (e.code === "rate_limit_exceeded") return "warning";
-  if (e.code === "upstream_rate_limit") return "warning";
+  if (e.code === "upstream_rate_limit" || e.code === "upstream_timeout") return "warning";
   if (e.code === "not_found") return "info";
   return "error";
 }
