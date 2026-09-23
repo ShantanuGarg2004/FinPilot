@@ -174,11 +174,13 @@ flowchart TB
 
 ### 4.3 Acceptance
 
-- [ ] Two API workers share the same counters  
-- [ ] Killing a worker does not reset limits  
-- [ ] Read storm (100 concurrent GET report) → ~0 read 429  
-- [ ] LLM storm → clean 429 with `code=rate_limit_exceeded`  
-- [ ] Frontend warning banner + Retry works against real JSON 429  
+- [x] Two API workers share the same counters  
+- [x] Killing a worker does not reset limits  
+- [x] Read storm (100 concurrent GET report) → ~0 read 429  
+- [x] LLM storm → clean 429 with `code=rate_limit_exceeded`  
+- [x] Frontend warning banner + Retry works against real JSON 429  
+
+**Completed:** 2026-09-23 — see `docs/testing_reports/WAVE1_IMPLEMENTATION_AND_TEST_REPORT.md` (48 tests passed).
 
 ---
 

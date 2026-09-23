@@ -35,7 +35,7 @@ export default function AdvisoryPage({ userId, userGoal }) {
 
   return (
     <div className="max-w-[840px] mx-auto">
-      <div className="flex justify-between items-end mb-md border-b border-outline pb-md gap-3">
+      <div className="flex justify-between items-end mb-xl md:mb-2xl border-b border-outline pb-md gap-3">
         <div className="min-w-0">
           <h2 className="font-headline-lg text-headline-lg text-on-surface">AI Advisory Report</h2>
           <p className="text-[12px] text-on-surface-variant mt-0.5 truncate">

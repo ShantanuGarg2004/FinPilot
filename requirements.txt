@@ -7,3 +7,6 @@ groq
 requests
 reportlab
 flasgger
+# Wave 1 — SQL rate-limit store (PostgreSQL)
+SQLAlchemy>=2.0,<3
+psycopg[binary]>=3.1,<4

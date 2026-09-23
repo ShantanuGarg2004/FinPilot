@@ -1,16 +1,16 @@
 """Integration tests for Wave 0 rate-limit policy and API contracts.
 
 Uses Flask test client + temporary SQLite. No real Groq calls.
+Wave 1 gateway owns limits when backend is memory|sql; tests tighten PolicyRegistry.
 """
 import json
-import os
 
 import pytest
 
 import config
 import database.db as db_mod
 from app import create_app
-from extensions import limiter
+from services.rate_limit import gateway as gw_mod
 
 
 @pytest.fixture()
@@ -19,18 +19,18 @@ def api_client(tmp_path, monkeypatch):
     test_db = tmp_path / "wave0_test.db"
     monkeypatch.setattr(db_mod, "DB_NAME", str(test_db))
     monkeypatch.setattr(config.Config, "RATELIMIT_ENABLED", True)
+    monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_BACKEND", "memory")
     monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_URI", "memory://")
-    monkeypatch.setattr(config.Config, "RATELIMIT_LLM_REPORT", "2 per minute")
-    monkeypatch.setattr(config.Config, "RATELIMIT_READ", "120 per minute")
-    limiter.enabled = True
-
-    try:
-        limiter.reset()
-    except Exception:
-        pass
+    gw_mod._gateway = None
 
     app = create_app()
     app.config["TESTING"] = True
+    # Tighten llm_report for fast 429 assertions (Wave 1 PolicyRegistry).
+    gw = gw_mod.get_gateway()
+    assert gw is not None
+    gw.policies.llm_report = type(gw.policies.llm_report)("llm_report", 2, 60, False)
+    gw.policies.llm_report_user = type(gw.policies.llm_report_user)("llm_report", 100, 3600, True)
+
     client = app.test_client()
     headers = {"X-API-Key": config.Config.API_SECRET_KEY, "Content-Type": "application/json"}
     return client, headers

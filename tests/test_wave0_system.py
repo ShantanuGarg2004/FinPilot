@@ -3,6 +3,7 @@
 These tests exercise the full Flask stack (auth + limiter + routes) with a
 temporary database. External Groq/PDF work is stubbed only where the test
 focuses on limiter behaviour.
+Wave 1 gateway owns limits when backend is memory|sql; tests tighten PolicyRegistry.
 """
 import json
 
@@ -11,25 +12,25 @@ import pytest
 import config
 import database.db as db_mod
 from app import create_app
-from extensions import limiter
+from services.rate_limit import gateway as gw_mod
 
 
 @pytest.fixture()
 def system_client(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_NAME", str(tmp_path / "wave0_system.db"))
     monkeypatch.setattr(config.Config, "RATELIMIT_ENABLED", True)
+    monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_BACKEND", "memory")
     monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_URI", "memory://")
-    monkeypatch.setattr(config.Config, "RATELIMIT_READ", "50 per minute")
-    monkeypatch.setattr(config.Config, "RATELIMIT_LLM_REPORT", "2 per minute")
-    limiter.enabled = True
-
-    try:
-        limiter.reset()
-    except Exception:
-        pass
+    monkeypatch.setattr(config.Config, "FLASK_ENV", "production")
+    gw_mod._gateway = None
 
     app = create_app()
     app.config["TESTING"] = True
+    gw = gw_mod.get_gateway()
+    assert gw is not None
+    gw.policies.llm_report = type(gw.policies.llm_report)("llm_report", 2, 60, False)
+    gw.policies.llm_report_user = type(gw.policies.llm_report_user)("llm_report", 100, 3600, True)
+
     return app.test_client(), {
         "X-API-Key": config.Config.API_SECRET_KEY,
         "Content-Type": "application/json",
@@ -120,58 +121,50 @@ def test_system_llm_quota_independent_of_reads(system_client, monkeypatch):
 def test_system_disabled_ratelimit_allows_burst(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_NAME", str(tmp_path / "wave0_off.db"))
     monkeypatch.setattr(config.Config, "RATELIMIT_ENABLED", False)
-    monkeypatch.setattr(config.Config, "RATELIMIT_LLM_REPORT", "1 per minute")
+    monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_BACKEND", "memory")
+    gw_mod._gateway = None
 
-    limiter.enabled = False
-    try:
-        try:
-            limiter.reset()
-        except Exception:
-            pass
+    app = create_app()
+    app.config["TESTING"] = True
+    client = app.test_client()
+    headers = {
+        "X-API-Key": config.Config.API_SECRET_KEY,
+        "Content-Type": "application/json",
+    }
 
-        app = create_app()
-        app.config["TESTING"] = True
-        client = app.test_client()
-        headers = {
-            "X-API-Key": config.Config.API_SECRET_KEY,
-            "Content-Type": "application/json",
-        }
+    import routes.report_routes as rr
 
-        import routes.report_routes as rr
+    monkeypatch.setattr(
+        rr,
+        "get_user_by_id",
+        lambda uid: {
+            "id": uid,
+            "age": 30,
+            "income": 1,
+            "expenses": 1,
+            "savings": 1,
+            "risk_appetite": "low",
+            "financial_goals": "x" * 10,
+        },
+    )
+    monkeypatch.setattr(
+        rr,
+        "calculate_health_score",
+        lambda p: {"score": 1, "insights": [], "warnings": [], "pillar_scores": {}},
+    )
+    monkeypatch.setattr(rr, "generate_financial_report", lambda p, h: (True, "ok"))
 
-        monkeypatch.setattr(
-            rr,
-            "get_user_by_id",
-            lambda uid: {
-                "id": uid,
-                "age": 30,
-                "income": 1,
-                "expenses": 1,
-                "savings": 1,
-                "risk_appetite": "low",
-                "financial_goals": "x" * 10,
-            },
-        )
-        monkeypatch.setattr(
-            rr,
-            "calculate_health_score",
-            lambda p: {"score": 1, "insights": [], "warnings": [], "pillar_scores": {}},
-        )
-        monkeypatch.setattr(rr, "generate_financial_report", lambda p, h: (True, "ok"))
+    def _fake_pdf(profile, health, ai_report, filename=None):
+        with open(filename, "wb") as fh:
+            fh.write(b"%PDF-1.4 fake")
+        return True, filename
 
-        def _fake_pdf(profile, health, ai_report, filename=None):
-            with open(filename, "wb") as fh:
-                fh.write(b"%PDF-1.4 fake")
-            return True, filename
+    monkeypatch.setattr(rr, "generate_pdf_report", _fake_pdf)
+    monkeypatch.setattr(rr, "_save_report_to_db", lambda *a, **k: None)
 
-        monkeypatch.setattr(rr, "generate_pdf_report", _fake_pdf)
-        monkeypatch.setattr(rr, "_save_report_to_db", lambda *a, **k: None)
-
-        codes = [
-            client.post("/api/generate-report", data=json.dumps({"user_id": 1}), headers=headers).status_code
-            for _ in range(5)
-        ]
-        assert 429 not in codes
-        assert all(c == 200 for c in codes)
-    finally:
-        limiter.enabled = True
+    codes = [
+        client.post("/api/generate-report", data=json.dumps({"user_id": 1}), headers=headers).status_code
+        for _ in range(5)
+    ]
+    assert 429 not in codes
+    assert all(c == 200 for c in codes)

@@ -261,6 +261,8 @@ Create a `.env` file in the project root:
 GROQ_API_KEY=your-groq-api-key
 API_SECRET_KEY=your-chosen-api-secret
 RATELIMIT_STORAGE_URI=memory://
+RATELIMIT_STORAGE_BACKEND=sql
+RATELIMIT_DATABASE_URL=postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot_ratelimit
 
 # Optional — per-service model overrides (defaults shown)
 GROQ_REPORT_MODEL=openai/gpt-oss-120b
@@ -268,8 +270,16 @@ GROQ_CHAT_MODEL=openai/gpt-oss-20b
 ```
 
 > `GROQ_API_KEY` and `API_SECRET_KEY` are **required** — the server refuses to start
-> without them. `RATELIMIT_STORAGE_URI` defaults to `memory://` (use a Redis URI in production).
-> The model variables are optional and fall back to the defaults shown above.
+> without them. `RATELIMIT_STORAGE_URI` remains the Flask-Limiter fallback (`memory://` for local).
+> Wave 1 SQL limiter uses `RATELIMIT_STORAGE_BACKEND=sql` + `RATELIMIT_DATABASE_URL` (PostgreSQL).
+> See `.env.example` and `docker-compose.yml` to run a local Postgres for rate limits.
+
+**Local PostgreSQL (rate-limit store):**
+
+```bash
+docker compose up -d
+# schema auto-applies from database/sql/rate_limit_schema.sql
+```
 
 Run the server:
 
