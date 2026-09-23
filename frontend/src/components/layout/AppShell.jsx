@@ -27,8 +27,8 @@ export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, 
       {fullBleed ? (
         <main className="lg:ml-56 pt-14 h-screen overflow-hidden">{children}</main>
       ) : (
-        <main className="lg:ml-56 pt-14 min-h-screen px-gutter py-xl md:px-lg">
-          <div className="max-w-container-max mx-auto animate-fadeUp space-y-lg">{children}</div>
+        <main className="lg:ml-56 pt-14 min-h-screen px-gutter pb-xl md:px-lg">
+          <div className="max-w-container-max mx-auto animate-fadeUp space-y-lg pt-xl md:pt-2xl">{children}</div>
         </main>
       )}
     </div>

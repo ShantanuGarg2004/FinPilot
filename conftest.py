@@ -21,4 +21,6 @@ os.environ.setdefault("GROQ_REPORT_MAX_TOKENS", "4096")
 os.environ.setdefault("GROQ_CHAT_MAX_TOKENS", "1500")
 os.environ.setdefault("RATELIMIT_STORAGE_URI", "memory://")
 os.environ.setdefault("RATELIMIT_ENABLED", "true")
+# Tests use in-memory Wave 1 store by default (no Postgres required).
+os.environ.setdefault("RATELIMIT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("FLASK_ENV", "production")

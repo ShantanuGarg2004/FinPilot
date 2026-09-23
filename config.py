@@ -35,13 +35,15 @@ class Config:
     # Secret key clients must send as X-API-Key header to reach the API.
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")
 
-    # Rate limiting (Wave 0 policy hotfix; SQL store is Wave 1).
+    # Rate limiting (Wave 0 Flask-Limiter + Wave 1 SQL store prep)
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
     RATELIMIT_ENABLED = _env_bool("RATELIMIT_ENABLED", True)
+    RATELIMIT_STORAGE_BACKEND = (os.getenv("RATELIMIT_STORAGE_BACKEND") or "memory").lower()
+    RATELIMIT_DATABASE_URL = os.getenv("RATELIMIT_DATABASE_URL")
     FLASK_ENV = (os.getenv("FLASK_ENV") or os.getenv("FINPILOT_ENV") or "production").lower()
 
-    # Route-class ceilings (strings accepted by Flask-Limiter).
-    # Development uses higher read ceilings to survive HMR / Strict Mode remounts.
+    # Legacy Flask-Limiter string ceilings (kept for decorator compatibility;
+    # Wave 1 gateway uses PolicyRegistry integer quotas instead).
     _dev = FLASK_ENV in ("development", "dev", "local")
     RATELIMIT_READ = os.getenv(
         "RATELIMIT_READ",
@@ -60,3 +62,9 @@ class Config:
                 f"Missing required environment variables: {', '.join(missing)}\n"
                 "Add them to your .env file."
             )
+        if cls.RATELIMIT_ENABLED and cls.RATELIMIT_STORAGE_BACKEND == "sql":
+            if not cls.RATELIMIT_DATABASE_URL:
+                raise EnvironmentError(
+                    "RATELIMIT_STORAGE_BACKEND=sql requires RATELIMIT_DATABASE_URL "
+                    "(PostgreSQL SQLAlchemy URL)."
+                )

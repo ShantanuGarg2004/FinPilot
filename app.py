@@ -11,6 +11,8 @@ from routes.chat_routes import chat_bp
 from routes.goal_routes import goal_bp
 from database.models import create_tables
 from config import Config
+from services.rate_limit import build_gateway
+from services.rate_limit.gateway import get_gateway, uses_custom_gateway
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -26,13 +28,26 @@ def create_app():
     app = Flask(__name__)
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-    # Attach rate limiter (OPTIONS exempt via extensions.request_filter)
+    # Wave 1: custom gateway owns limits when backend is sql|memory.
+    # Keep Flask-Limiter imported for route decorators but disable it to avoid double-counting.
+    if uses_custom_gateway():
+        limiter.enabled = False
+        gateway = build_gateway()
+        logger.info(
+            "Wave 1 rate-limit gateway active (backend=%s, store_ping=%s)",
+            Config.RATELIMIT_STORAGE_BACKEND,
+            gateway.ping(),
+        )
+    else:
+        limiter.enabled = Config.RATELIMIT_ENABLED
+        logger.info("Flask-Limiter active (legacy backend=%s)", Config.RATELIMIT_STORAGE_BACKEND)
+
     limiter.init_app(app)
 
-    # Init DB
+    # Init app DB (SQLite profiles/reports/chat)
     create_tables()
 
-    # ── API key auth middleware ────────────────────────────────────────────
+    # ── Auth then rate-limit ───────────────────────────────────────────────
     @app.before_request
     def require_api_key():
         if request.method == "OPTIONS":
@@ -53,12 +68,26 @@ def create_app():
                 "code": "unauthorized",
             }), 401
 
-    # ── Wave 0.9: structured 429 JSON for the SPA ─────────────────────────
+    @app.before_request
+    def enforce_rate_limit():
+        if request.method == "OPTIONS":
+            return
+        if not request.path.startswith("/api"):
+            return
+        if request.path.rstrip("/") == "/api/health":
+            return
+        gw = get_gateway()
+        if not gw:
+            return
+        decision = gw.check(request)
+        if decision is not None and not decision.allowed and not decision.exempt:
+            return gw.denial_response(decision)
+
+    # ── Legacy Flask-Limiter 429 shape (if ever re-enabled) ────────────────
     @app.errorhandler(RateLimitExceeded)
     def handle_rate_limit(exc: RateLimitExceeded):
         retry_after = None
         try:
-            # Flask-Limiter may attach Retry-After via the HTTPException headers.
             for item in exc.get_headers() or []:
                 if str(item[0]).lower() == "retry-after":
                     retry_after = int(item[1])
@@ -97,11 +126,16 @@ def create_app():
     @app.route("/api/health")
     def health():
         """Liveness probe — exempt from API-key auth and rate limits."""
+        gw = get_gateway()
+        store_ok = gw.ping() if gw else None
+        status = "ok" if store_ok is not False else "degraded"
         return jsonify({
-            "status": "ok",
+            "status": status,
             "ratelimit_enabled": Config.RATELIMIT_ENABLED,
+            "ratelimit_backend": Config.RATELIMIT_STORAGE_BACKEND,
+            "ratelimit_store_ok": store_ok,
             "ratelimit_storage": Config.RATELIMIT_STORAGE_URI.split("://", 1)[0],
-        })
+        }), (200 if status == "ok" else 503)
 
     app.register_blueprint(user_bp, url_prefix="/api")
     app.register_blueprint(report_bp, url_prefix="/api")
@@ -109,9 +143,10 @@ def create_app():
     app.register_blueprint(goal_bp, url_prefix="/api")
 
     logger.info(
-        "App ready — rate limiting enabled=%s storage=%s",
+        "App ready — ratelimit enabled=%s backend=%s flask_limiter=%s",
         Config.RATELIMIT_ENABLED,
-        Config.RATELIMIT_STORAGE_URI,
+        Config.RATELIMIT_STORAGE_BACKEND,
+        limiter.enabled,
     )
     return app
 

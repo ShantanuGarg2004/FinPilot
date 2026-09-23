@@ -77,11 +77,11 @@ export default function GoalsPage({ userId, userGoal }) {
   const fColor = fScore >= 75 ? "#18B981" : fScore >= 50 ? "#F4B740" : "#F06A6A";
 
   return (
-    <div className="space-y-gutter">
+    <div className="space-y-xl">
       {/* Definition + Confidence */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-gutter items-stretch">
         <div className="lg:col-span-4 bg-surface-container-low border border-outline rounded-lg p-md space-y-sm">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 mb-1">
             <Icon name="track_changes" size={16} className="text-primary" />
             <h3 className="font-headline-md text-headline-md text-on-surface">Goal Definition</h3>
           </div>

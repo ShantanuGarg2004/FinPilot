@@ -1,0 +1,24 @@
+# Local PostgreSQL for FinPilot rate-limit store (Wave 1).
+# App data remains on SQLite until a later wave.
+services:
+  finpilot-postgres:
+    image: postgres:16-alpine
+    container_name: finpilot-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: finpilot
+      POSTGRES_PASSWORD: finpilot_dev_password
+      POSTGRES_DB: finpilot_ratelimit
+    volumes:
+      - finpilot_pg_data:/var/lib/postgresql/data
+      - ./database/sql/rate_limit_schema.sql:/docker-entrypoint-initdb.d/01_rate_limit_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finpilot -d finpilot_ratelimit"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  finpilot_pg_data:
