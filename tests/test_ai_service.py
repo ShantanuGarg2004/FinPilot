@@ -113,7 +113,9 @@ def test_ask_gpt_returns_false_on_exception(monkeypatch):
     monkeypatch.setattr(ai_service.client.chat.completions, "create", rec)
     ok, out = ai_service.ask_gpt("hello")
     assert ok is False
-    assert "boom" in out
+    assert isinstance(out, dict)
+    assert out["code"] == "upstream_error"
+    assert "boom" in out["error"]
 
 
 # ── generate_financial_report ────────────────────────────────────────────────
@@ -152,6 +154,14 @@ def test_chat_with_advisor_uses_message_key_from_history(recorder):
     ai_service.chat_with_advisor(SAMPLE_PROFILE, "follow up", history=history)
     user_msg = recorder.kwargs["messages"][1]["content"]
     assert "prior question about SIPs" in user_msg
+
+
+def test_chat_with_advisor_includes_more_than_five_history_turns(recorder):
+    history = [{"role": "user", "message": f"turn-{i}"} for i in range(12)]
+    ai_service.chat_with_advisor(SAMPLE_PROFILE, "follow up", history=history)
+    user_msg = recorder.kwargs["messages"][1]["content"]
+    assert "turn-11" in user_msg
+    assert "turn-0" in user_msg  # within last 20 and char budget
 
 
 def test_report_and_chat_use_distinct_models(recorder):

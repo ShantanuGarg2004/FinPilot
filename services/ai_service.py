@@ -1,6 +1,6 @@
 import logging
 
-from groq import Groq
+from groq import APIStatusError, Groq, RateLimitError
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 client = Groq(
     api_key=Config.GROQ_API_KEY
 )
+
+# Chat context window (Wave 2): prefer recent turns within a char budget.
+CHAT_HISTORY_MAX_MESSAGES = 20
+CHAT_HISTORY_CHAR_BUDGET = 8000
 
 
 # -------------------------------
@@ -36,6 +40,32 @@ Behavior Rules:
 """
 
 
+def _ai_error(code: str, message: str) -> dict:
+    return {"error": message, "code": code}
+
+
+def format_conversation_context(history) -> str:
+    """Build recent conversation text, newest-first selection within char budget."""
+    if not history or not isinstance(history, list):
+        return ""
+
+    selected = history[-CHAT_HISTORY_MAX_MESSAGES:]
+    lines_rev = []
+    total = 0
+    for msg in reversed(selected):
+        role = msg.get("role", "user")
+        content = msg.get("message") or msg.get("content") or ""
+        if not content:
+            continue
+        line = f"{role}: {content}"
+        if total + len(line) + 1 > CHAT_HISTORY_CHAR_BUDGET and lines_rev:
+            break
+        lines_rev.append(line)
+        total += len(line) + 1
+
+    return "\n".join(reversed(lines_rev))
+
+
 # -------------------------------
 # GROQ CALL WRAPPER
 # -------------------------------
@@ -43,19 +73,12 @@ def ask_gpt(prompt, model=None, max_tokens=None):
     """
     Send a single-turn prompt to the Groq chat completions API.
 
-    Parameters
-    ----------
-    prompt : str
-        The user prompt to send alongside the system persona.
-    model : str, optional
-        Groq model id to use. Falls back to ``Config.GROQ_CHAT_MODEL``.
-    max_tokens : int, optional
-        Completion budget. Falls back to ``Config.GROQ_CHAT_MAX_TOKENS``.
-
     Returns
     -------
-    tuple[bool, str]
-        ``(True, content)`` on success, ``(False, error_message)`` on failure.
+    tuple[bool, str | dict]
+        ``(True, content)`` on success.
+        ``(False, {"error", "code"})`` on failure — codes:
+        ``upstream_rate_limit`` | ``upstream_error``.
     """
     selected_model = model or Config.GROQ_CHAT_MODEL
     token_budget = max_tokens if max_tokens is not None else Config.GROQ_CHAT_MAX_TOKENS
@@ -91,9 +114,22 @@ def ask_gpt(prompt, model=None, max_tokens=None):
 
         return True, content
 
+    except RateLimitError as exc:
+        logger.warning("ask_gpt: Groq rate limit (model=%s): %s", selected_model, exc)
+        return False, _ai_error("upstream_rate_limit", str(exc))
+    except APIStatusError as exc:
+        status = getattr(exc, "status_code", None)
+        code = "upstream_rate_limit" if status == 429 else "upstream_error"
+        logger.error(
+            "ask_gpt: Groq APIStatusError status=%s model=%s: %s",
+            status,
+            selected_model,
+            exc,
+        )
+        return False, _ai_error(code, str(exc))
     except Exception as exc:
         logger.exception("ask_gpt: Groq completion failed (model=%s)", selected_model)
-        return False, str(exc)
+        return False, _ai_error("upstream_error", str(exc))
 
 
 # -------------------------------
@@ -162,14 +198,7 @@ Rules:
 # -------------------------------
 def chat_with_advisor(profile, user_query, history=None):
 
-    conversation_context = ""
-
-    if history and isinstance(history, list):
-        for msg in history[-5:]:
-            role = msg.get("role", "user")
-            # DB stores "message"; tolerate "content" for forward compatibility.
-            content = msg.get("message") or msg.get("content") or ""
-            conversation_context += f"{role}: {content}\n"
+    conversation_context = format_conversation_context(history)
 
     prompt = f"""
 You are the user's personal financial advisor.

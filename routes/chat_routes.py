@@ -114,7 +114,15 @@ def chat():
     status, response_text = chat_with_advisor(profile, user_query, history)
     if not status:
         logger.error("chat: AI error for user #%d — %s", user_id, response_text)
-        return jsonify({"error": response_text}), 500
+        if isinstance(response_text, dict):
+            code = response_text.get("code") or "upstream_error"
+            body = {
+                "error": response_text.get("error") or "AI chat failed",
+                "code": code,
+            }
+            http = 503 if code in ("upstream_rate_limit", "upstream_error") else 500
+            return jsonify(body), http
+        return jsonify({"error": str(response_text), "code": "upstream_error"}), 503
 
     try:
         _save_message(user_id, "ai", response_text)

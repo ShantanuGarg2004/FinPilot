@@ -214,9 +214,11 @@ flowchart TB
 
 ### 5.4 Acceptance
 
-- [ ] PDF parse error still leaves report loadable via GET  
-- [ ] Multi-turn chat uses prior user/AI text  
-- [ ] Opening Dashboard then Advisory causes **one** report GET (or cached)  
+- [x] PDF parse error still leaves report loadable via GET  
+- [x] Multi-turn chat uses prior user/AI text  
+- [x] Opening Dashboard then Advisory causes **one** report GET (or cached)  
+
+**Completed:** 2026-09-23 — see `docs/testing_reports/WAVE2_IMPLEMENTATION_AND_TEST_REPORT.md` (56 tests passed).
 
 ---
 

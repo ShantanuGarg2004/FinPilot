@@ -70,6 +70,8 @@ export function toApiError(input, res = null, data = null) {
     message = "AI provider rate limit hit. Please wait and retry.";
   } else if (code === "upstream_error") {
     message = data?.error || "The AI provider is unavailable. Please try again shortly.";
+  } else if (code === "pdf_unavailable") {
+    message = data?.error || "PDF is not available right now.";
   } else if (code === "network_error") {
     message = "Can't reach the FinPilot API. Confirm the backend is running on port 5000.";
   }
@@ -82,6 +84,7 @@ export function toastTypeForError(err) {
   const e = err instanceof ApiError ? err : toApiError(err);
   if (e.code === "aborted") return null;
   if (e.code === "rate_limit_exceeded") return "warning";
+  if (e.code === "upstream_rate_limit") return "warning";
   if (e.code === "not_found") return "info";
   return "error";
 }

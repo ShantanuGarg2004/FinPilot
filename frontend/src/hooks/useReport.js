@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, apiFetchRaw } from "../config/api";
 import { formatApiErrorMessage, toastTypeForError } from "../lib/apiErrors";
+import {
+  invalidateReport,
+  loadReport,
+  peekReport,
+  setReportCache,
+} from "../lib/reportStore";
 
 /* Only toast true "no report" once per profile across revisits. */
 const shownNoReportToast = new Set();
 const shownThrottleToast = new Set();
-
-function normalise(payload) {
-  const health = payload?.health || {};
-  if (!health.pillar_scores) health.pillar_scores = {};
-  return { health, ai_report: payload?.ai_report };
-}
 
 function notify(showToast, err, fallback) {
   const type = toastTypeForError(err);
@@ -19,20 +19,31 @@ function notify(showToast, err, fallback) {
 }
 
 export default function useReport(userId, showToast) {
-  const [report, setReport] = useState(null);
-  const [fetching, setFetching] = useState(true);
+  const cached = userId != null ? peekReport(userId) : undefined;
+  const [report, setReport] = useState(() =>
+    cached === undefined ? null : cached
+  );
+  const [fetching, setFetching] = useState(() => cached === undefined && userId != null);
   const [generating, setGenerating] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      const hit = peekReport(userId);
+      if (hit !== undefined) {
+        setReport(hit);
+        setFetching(false);
+        setLoadError(hit ? null : { code: "not_found", status: 404 });
+        return;
+      }
+
       setFetching(true);
       setLoadError(null);
       try {
-        const d = await apiFetch(`/report/${userId}`);
+        const d = await loadReport(userId, apiFetch);
         if (!cancelled) {
-          setReport(normalise(d));
+          setReport(d);
           shownThrottleToast.delete(userId);
         }
       } catch (err) {
@@ -70,12 +81,20 @@ export default function useReport(userId, showToast) {
         method: "POST",
         body: JSON.stringify({ user_id: userId }),
       });
-      setReport(normalise(data));
+      const normalised = setReportCache(userId, data);
+      setReport(normalised);
       setLoadError(null);
       shownNoReportToast.delete(userId);
       shownThrottleToast.delete(userId);
       shownThrottleToast.delete(`load-${userId}`);
-      showToast?.("Report generated", "success");
+      if (data?.pdf_ready === false) {
+        showToast?.(
+          "Report saved — PDF will be created when you download",
+          "warning"
+        );
+      } else {
+        showToast?.("Report generated", "success");
+      }
     } catch (e) {
       notify(showToast, e, "Could not generate report");
     } finally {
@@ -93,9 +112,17 @@ export default function useReport(userId, showToast) {
       a.download = `financial_report_profile_${userId}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
+      // Download may have regenerated PDF — refresh cache flag
+      const current = peekReport(userId);
+      if (current && current.pdf_ready === false) {
+        setReportCache(userId, { ...current, pdf_ready: true, pdf_error: null });
+        setReport((r) => (r ? { ...r, pdf_ready: true, pdf_error: null } : r));
+      }
     } catch (e) {
       if (e?.code === "not_found" || e?.status === 404) {
         showToast?.("No PDF available — generate a report first.", "info");
+      } else if (e?.code === "pdf_unavailable") {
+        showToast?.("PDF could not be built from the saved report. Try regenerating.", "error");
       } else {
         notify(showToast, e, "Could not download report");
       }
@@ -104,11 +131,12 @@ export default function useReport(userId, showToast) {
 
   const retryLoad = useCallback(async () => {
     shownThrottleToast.delete(`load-${userId}`);
+    invalidateReport(userId);
     setFetching(true);
     setLoadError(null);
     try {
-      const d = await apiFetch(`/report/${userId}`);
-      setReport(normalise(d));
+      const d = await loadReport(userId, apiFetch);
+      setReport(d);
     } catch (err) {
       setLoadError(err);
       if (err?.code === "not_found" || err?.status === 404) {

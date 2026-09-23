@@ -14,21 +14,51 @@ from reportlab.lib.styles import (
 )
 from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.lib.units import inch
+from xml.sax.saxutils import escape
 import re
 
 
 # -------------------------
-# CLEAN MARKDOWN
+# CLEAN MARKDOWN (Wave 2)
 # -------------------------
 
+_TABLE_SEP = re.compile(r"^\s*\|?[\s:-]+\|[\s|:-]*$")
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+
+
 def clean_ai_text(text):
+    """Strip markdown that breaks ReportLab Paragraph XML parsing."""
+    if not text:
+        return ""
+
     text = text.replace("₹", "Rs. ")
+    # Fenced code blocks → plain text without fences
+    text = re.sub(r"```[\w]*\n?", "", text)
+    text = text.replace("```", "")
+
+    kept = []
+    for line in text.split("\n"):
+        # Drop markdown pipe tables (ReportLab chokes on raw |)
+        if _TABLE_ROW.match(line) or _TABLE_SEP.match(line):
+            continue
+        kept.append(line)
+    text = "\n".join(kept)
 
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"__(.*?)__", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
     text = re.sub(r"##\s*", "", text)
     text = re.sub(r"#\s*", "", text)
+    # Collapse leftover HTML-ish tags to plain text
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?[^>]+>", "", text)
 
     return text
+
+
+def _safe_xml(text: str) -> str:
+    """Escape for ReportLab's mini-HTML Paragraph parser."""
+    return escape(text or "", {"\"": "&quot;"})
 
 
 # -------------------------
@@ -144,8 +174,8 @@ def generate_pdf_report(
         cover_table=Table(
             [
                 ["Client Age", profile["age"]],
-                ["Risk Profile", profile["risk_appetite"]],
-                ["Primary Goal", profile["financial_goals"]],
+                ["Risk Profile", str(profile["risk_appetite"])],
+                ["Primary Goal", str(profile["financial_goals"])[:120]],
                 ["Financial Health Score", f"{health_data['score']}/100"]
             ],
             colWidths=[220,180]
@@ -244,14 +274,9 @@ across budgeting, savings discipline and investment planning.
             )
         )
 
-        for item in health_data["insights"]:
-            item=item.replace("₹","Rs.")
-            story.append(
-                Paragraph(
-                    f"• {item}",
-                    bullet
-                )
-            )
+        for item in health_data.get("insights") or []:
+            item = _safe_xml(str(item).replace("₹", "Rs."))
+            story.append(Paragraph(f"• {item}", bullet))
 
         story.append(Spacer(1,20))
 
@@ -266,14 +291,9 @@ across budgeting, savings discipline and investment planning.
             )
         )
 
-        for item in health_data["warnings"]:
-            item=item.replace("₹","Rs.")
-            story.append(
-                Paragraph(
-                    f"• {item}",
-                    bullet
-                )
-            )
+        for item in health_data.get("warnings") or []:
+            item = _safe_xml(str(item).replace("₹", "Rs."))
+            story.append(Paragraph(f"• {item}", bullet))
 
         story.append(PageBreak())
 
@@ -288,12 +308,10 @@ across budgeting, savings discipline and investment planning.
             )
         )
 
-        cleaned=clean_ai_text(ai_report)
+        cleaned = clean_ai_text(ai_report)
 
         for line in cleaned.split("\n"):
-
-            line=line.strip()
-
+            line = line.strip()
             if not line:
                 continue
 
@@ -305,35 +323,16 @@ across budgeting, savings discipline and investment planning.
                     "Investment Recommendations",
                     "Risk Warnings",
                     "Goal Strategy",
-                    "30-Day Action Plan"
+                    "30-Day Action Plan",
                 ]
             ):
-                story.append(
-                    Spacer(1,10)
-                )
-
-                story.append(
-                    Paragraph(
-                        line,
-                        heading
-                    )
-                )
-
-            elif line.startswith("-"):
-                story.append(
-                    Paragraph(
-                        f"• {line[1:].strip()}",
-                        bullet
-                    )
-                )
-
+                story.append(Spacer(1, 10))
+                story.append(Paragraph(_safe_xml(line), heading))
+            elif line.startswith("-") or line.startswith("•"):
+                content = line[1:].strip()
+                story.append(Paragraph(f"• {_safe_xml(content)}", bullet))
             else:
-                story.append(
-                    Paragraph(
-                        line,
-                        body
-                    )
-                )
+                story.append(Paragraph(_safe_xml(line), body))
 
         story.append(Spacer(1,30))
 
