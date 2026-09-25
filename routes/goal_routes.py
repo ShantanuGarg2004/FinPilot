@@ -4,7 +4,7 @@ from marshmallow import ValidationError
 
 from schemas import goal_plan_schema
 from services.goal_service import calculate_goal_plan
-from routes.user_routes import get_user_by_id
+from database.repository import get_user_by_id
 
 logger  = logging.getLogger(__name__)
 goal_bp = Blueprint("goal", __name__)

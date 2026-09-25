@@ -157,6 +157,8 @@ After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_
 
 **Out of scope:** moving the app database to PostgreSQL. That stays a Q6 decision after a load test, unless Q3 measurements already show write timeouts.
 
+**Completed:** 2026-09-25. Profile, report, and chat SQL live in `database/repository.py`. One SQLite connection is opened per request. PDFs are files under `data/pdfs` (`PDF_STORAGE_DIR`). Report: `docs/testing_reports/Q3_IMPLEMENTATION_AND_TEST_REPORT.md`.
+
 ### Q4 — Identity seam (still the shared API key)
 
 **Goal:** Code speaks about an actor. Today the actor is “valid deployment key, no person.” Per-person auth can plug in without rewriting the gateway.

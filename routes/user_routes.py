@@ -1,44 +1,14 @@
 import logging
+import sqlite3
+
 from flask import Blueprint, request, jsonify
 from marshmallow import ValidationError
 
 from schemas import profile_schema
-from database.db import get_connection
+from database.repository import delete_user, get_all_users, get_user_by_id, insert_user
 
 logger  = logging.getLogger(__name__)
 user_bp = Blueprint("user", __name__)
-
-
-# ── DB helpers (imported by other route modules) ───────────────────────────
-
-def get_latest_user():
-    """Return the most recently created user as a plain dict, or None."""
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users ORDER BY id DESC LIMIT 1")
-    user   = cursor.fetchone()
-    conn.close()
-    return dict(user) if user else None
-
-
-def get_user_by_id(user_id: int):
-    """Return a specific user as a plain dict, or None."""
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    user   = cursor.fetchone()
-    conn.close()
-    return dict(user) if user else None
-
-
-def get_all_users():
-    """Return all users ordered by id ascending."""
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users ORDER BY id ASC")
-    rows   = cursor.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
@@ -121,29 +91,13 @@ def create_profile():
 
     # ── Persist ───────────────────────────────────────────────────────────
     try:
-        conn   = get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO users
-                (age, income, expenses, savings, risk_appetite, financial_goals)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                data["age"],
-                data["income"],
-                data["expenses"],
-                data["savings"],
-                data["risk_appetite"],
-                data["financial_goals"],
-            ),
-        )
-        conn.commit()
-        user_id = cursor.lastrowid
-        conn.close()
-    except Exception:
+        user_id = insert_user(data)
+    except sqlite3.Error:
         logger.exception("create_profile: DB insert failed")
-        return jsonify({"error": "Database error — profile could not be saved"}), 500
+        return jsonify({
+            "error": "Database error — profile could not be saved",
+            "code": "server_error",
+        }), 500
 
     logger.info("create_profile: new profile #%d created", user_id)
     return jsonify({
@@ -173,26 +127,18 @@ def delete_profile(user_id: int):
       500:
         description: Deletion failed
     """
-    conn   = get_connection()
-    cursor = conn.cursor()
+    try:
+        deleted = delete_user(user_id)
+    except sqlite3.Error:
+        logger.exception("delete_profile: DB delete failed for user #%d", user_id)
+        return jsonify({
+            "error": "Deletion failed — database error",
+            "code": "server_error",
+        }), 500
 
-    cursor.execute("SELECT id FROM users WHERE id = ?", (user_id,))
-    if not cursor.fetchone():
-        conn.close()
+    if not deleted:
         return jsonify({"error": "Profile not found"}), 404
 
-    try:
-        cursor.execute("DELETE FROM reports      WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM users        WHERE id      = ?", (user_id,))
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        conn.close()
-        logger.exception("delete_profile: DB delete failed for user #%d", user_id)
-        return jsonify({"error": "Deletion failed — database error"}), 500
-
-    conn.close()
     logger.info("delete_profile: profile #%d deleted", user_id)
     return jsonify({
         "message":          f"Profile #{user_id} deleted successfully",

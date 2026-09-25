@@ -1,5 +1,4 @@
 import logging
-from models.user_model import UserProfile
 
 logger = logging.getLogger(__name__)
 
@@ -77,5 +76,4 @@ def create_user_profile(data: dict):
     if not is_normalized:
         return False, normalized_data
 
-    user = UserProfile(normalized_data)
-    return True, user.to_dict()
+    return True, normalized_data

@@ -1,5 +1,8 @@
 import sqlite3
 import logging
+from contextlib import contextmanager
+
+from flask import g, has_request_context
 
 from config import Config
 
@@ -7,7 +10,7 @@ logger  = logging.getLogger(__name__)
 DB_NAME = "finance.db"
 
 
-def get_connection() -> sqlite3.Connection:
+def open_connection() -> sqlite3.Connection:
     """
     Open a SQLite connection with:
       - WAL journal mode   → allows concurrent reads while a write is in progress
@@ -24,3 +27,42 @@ def get_connection() -> sqlite3.Connection:
     conn.execute(f"PRAGMA busy_timeout={int(Config.SQLITE_BUSY_TIMEOUT_MS)}")
 
     return conn
+
+
+def get_connection() -> sqlite3.Connection:
+    """Short-lived connection for startup and tests. Request handlers use connection()."""
+    return open_connection()
+
+
+@contextmanager
+def connection():
+    """
+    One connection for the whole request, closed in teardown.
+    Outside a request, open a connection and close it when the block ends.
+    """
+    if has_request_context():
+        conn = getattr(g, "sqlite_conn", None)
+        if conn is None:
+            conn = open_connection()
+            g.sqlite_conn = conn
+        try:
+            yield conn
+        except sqlite3.Error:
+            conn.rollback()
+            raise
+        return
+
+    conn = open_connection()
+    try:
+        yield conn
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def close_request_connection(exc=None):
+    conn = g.pop("sqlite_conn", None)
+    if conn is not None:
+        conn.close()

@@ -1,52 +1,15 @@
 import logging
+import sqlite3
+
 from flask import Blueprint, request, jsonify
 from marshmallow import ValidationError
 
 from schemas import chat_schema
 from services.ai_service import chat_with_advisor, http_status_for_ai_code
-from routes.user_routes import get_user_by_id
-from database.db import get_connection
+from database.repository import clear_chat_history, get_user_by_id, load_chat_history, save_chat_turn
 
 logger  = logging.getLogger(__name__)
 chat_bp = Blueprint("chat", __name__)
-
-
-# ── DB helpers ─────────────────────────────────────────────────────────────
-
-def _load_history(user_id: int, limit: int = 20) -> list:
-    """Return the most recent `limit` messages for user_id, oldest first."""
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        SELECT role, message FROM chat_history
-        WHERE user_id = ?
-        ORDER BY id DESC LIMIT ?
-        """,
-        (user_id, limit),
-    )
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"role": r["role"], "message": r["message"]} for r in reversed(rows)]
-
-
-def _save_message(user_id: int, role: str, message: str) -> None:
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO chat_history (user_id, role, message) VALUES (?, ?, ?)",
-        (user_id, role, message),
-    )
-    conn.commit()
-    conn.close()
-
-
-def _clear_history(user_id: int) -> None:
-    conn   = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
 
 
 # ── Routes ─────────────────────────────────────────────────────────────────
@@ -101,7 +64,7 @@ def chat():
     if not profile:
         return jsonify({"error": f"User profile #{user_id} not found"}), 404
 
-    history = _load_history(user_id, limit=20)
+    history = load_chat_history(user_id, limit=20)
 
     status, response_text = chat_with_advisor(profile, user_query, history)
     if not status:
@@ -116,9 +79,8 @@ def chat():
         return jsonify({"error": str(response_text), "code": "upstream_error"}), 503
 
     try:
-        _save_message(user_id, "user", user_query)
-        _save_message(user_id, "ai", response_text)
-    except Exception:
+        save_chat_turn(user_id, user_query, response_text)
+    except sqlite3.Error:
         logger.exception("chat: failed to persist turn for user #%d", user_id)
         return jsonify({
             "error": "The reply was generated but could not be saved",
@@ -154,13 +116,13 @@ def get_chat_history(user_id: int):
     if not profile:
         return jsonify({"error": f"User profile #{user_id} not found"}), 404
 
-    history = _load_history(user_id, limit=100)
+    history = load_chat_history(user_id, limit=100)
     logger.debug("get_chat_history: %d messages returned for user #%d", len(history), user_id)
     return jsonify({"user_id": user_id, "history": history})
 
 
 @chat_bp.route("/chat/history/<int:user_id>", methods=["DELETE"])
-def clear_chat_history(user_id: int):
+def clear_chat_history_route(user_id: int):
     """
     Clear all chat history for a user.
     ---
@@ -182,10 +144,13 @@ def clear_chat_history(user_id: int):
         return jsonify({"error": f"User profile #{user_id} not found"}), 404
 
     try:
-        _clear_history(user_id)
+        clear_chat_history(user_id)
         logger.info("clear_chat_history: history cleared for user #%d", user_id)
-    except Exception:
+    except sqlite3.Error:
         logger.exception("clear_chat_history: DB delete failed for user #%d", user_id)
-        return jsonify({"error": "Could not clear history — database error"}), 500
+        return jsonify({
+            "error": "Could not clear history — database error",
+            "code": "server_error",
+        }), 500
 
     return jsonify({"message": f"Chat history for user #{user_id} cleared."})

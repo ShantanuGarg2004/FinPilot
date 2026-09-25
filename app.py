@@ -10,6 +10,7 @@ from routes.report_routes import report_bp
 from routes.chat_routes import chat_bp
 from routes.goal_routes import goal_bp
 from database.models import create_tables
+from database.db import close_request_connection
 from config import Config, recommended_worker_count
 from services.rate_limit import build_gateway
 from services.rate_limit.gateway import get_gateway, is_application_api, is_public_docs, uses_custom_gateway
@@ -46,6 +47,7 @@ def create_app():
 
     # Init app DB (SQLite profiles/reports/chat)
     create_tables()
+    app.teardown_appcontext(close_request_connection)
 
     def _presented_api_key() -> str:
         header = request.headers.get("X-API-Key", "") or ""

@@ -1,7 +1,7 @@
 import io
-import json
 import logging
 import os
+import sqlite3
 import tempfile
 
 from flask import Blueprint, jsonify, send_file, request
@@ -11,83 +11,28 @@ from schemas import generate_report_schema
 from services.health_service import calculate_health_score
 from services.ai_service import generate_financial_report, http_status_for_ai_code
 from services.pdf_service import generate_pdf_report
-from routes.user_routes import get_user_by_id
-from database.db import get_connection
+from database.repository import get_user_by_id, load_pdf_bytes, load_report, save_report, store_pdf
 from services.rate_limit.gateway import get_gateway
 
 logger = logging.getLogger(__name__)
 report_bp = Blueprint("report", __name__)
 
 
-# ── DB helpers ─────────────────────────────────────────────────────────────
-
-def _save_report_to_db(
-    user_id: int,
-    health_data: dict,
-    ai_report: str,
-    pdf_bytes: bytes | None = None,
-) -> None:
-    """Persist health + AI text. pdf_bytes=None stores NULL until a PDF exists."""
-    blob = pdf_bytes if pdf_bytes else None
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO reports (user_id, health_json, ai_report, pdf_blob, generated_at)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(user_id) DO UPDATE SET
-            health_json  = excluded.health_json,
-            ai_report    = excluded.ai_report,
-            pdf_blob     = excluded.pdf_blob,
-            generated_at = CURRENT_TIMESTAMP
-        """,
-        (user_id, json.dumps(health_data), ai_report, blob),
-    )
-    conn.commit()
-    conn.close()
+# Names kept so existing tests can replace persistence without touching SQL.
+def _save_report_to_db(user_id: int, health_data: dict, ai_report: str, pdf_bytes: bytes | None = None) -> None:
+    save_report(user_id, health_data, ai_report)
 
 
 def _update_pdf_blob(user_id: int, pdf_bytes: bytes) -> None:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE reports SET pdf_blob = ? WHERE user_id = ?",
-        (pdf_bytes, user_id),
-    )
-    conn.commit()
-    conn.close()
+    store_pdf(user_id, pdf_bytes)
 
 
 def _load_report_from_db(user_id: int) -> dict | None:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT health_json, ai_report, pdf_blob FROM reports WHERE user_id = ?",
-        (user_id,),
-    )
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        return None
-    blob = row["pdf_blob"]
-    pdf_ready = bool(blob) and len(bytes(blob)) > 0
-    return {
-        "health": json.loads(row["health_json"]),
-        "ai_report": row["ai_report"],
-        "pdf_ready": pdf_ready,
-    }
+    return load_report(user_id)
 
 
 def _load_pdf_blob_from_db(user_id: int) -> bytes | None:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT pdf_blob FROM reports WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row or row["pdf_blob"] is None:
-        return None
-    blob = bytes(row["pdf_blob"])
-    return blob if blob else None
+    return load_pdf_bytes(user_id)
 
 
 def _ai_failure_response(result):
@@ -214,7 +159,7 @@ def generate_report():
     try:
         _save_report_to_db(user_id, health_data, ai_report, pdf_bytes=None)
         logger.info("generate_report: advisory persisted (pre-PDF) for user #%d", user_id)
-    except Exception:
+    except sqlite3.Error:
         logger.exception("generate_report: DB save failed for user #%d", user_id)
         return jsonify({
             "error": "Report generated but could not be saved to DB",
@@ -230,8 +175,8 @@ def generate_report():
             _update_pdf_blob(user_id, pdf_result)
             pdf_ready = True
             logger.info("generate_report: PDF saved for user #%d", user_id)
-        except Exception:
-            logger.exception("generate_report: PDF blob update failed for user #%d", user_id)
+        except (sqlite3.Error, OSError):
+            logger.exception("generate_report: PDF file save failed for user #%d", user_id)
             pdf_error = "PDF generated but could not be saved"
     else:
         pdf_error = str(pdf_result)
@@ -312,7 +257,7 @@ def download_report(user_id: int):
 
     try:
         _update_pdf_blob(user_id, pdf_result)
-    except Exception:
+    except (sqlite3.Error, OSError):
         logger.exception("download_report: could not cache regenerated PDF for user #%d", user_id)
 
     return send_file(

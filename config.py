@@ -38,6 +38,9 @@ class Config:
     PEAK_CONCURRENT_LLM = _env_int("PEAK_CONCURRENT_LLM", 4)
     WORKER_HEADROOM = _env_int("WORKER_HEADROOM", 2)
     SQLITE_BUSY_TIMEOUT_MS = _env_int("SQLITE_BUSY_TIMEOUT_MS", 5000)
+    # Q3: PDF bytes live on disk. The row stores the file name, not the blob.
+    _ROOT = os.path.dirname(os.path.abspath(__file__))
+    PDF_STORAGE_DIR = os.getenv("PDF_STORAGE_DIR", os.path.join(_ROOT, "data", "pdfs"))
 
     # Secret key clients must send as X-API-Key header to reach the API.
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")

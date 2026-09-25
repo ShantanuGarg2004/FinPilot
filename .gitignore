@@ -19,6 +19,10 @@ finance.db-wal
 finance.db-shm
 *.sqlite
 *.sqlite3
+backups/
+
+# ── PDF files (Q3). The database stores the file name only. ───────────────
+data/pdfs/
 
 # ── Generated artifacts ──────────────────────────────────────────────────
 financial_report*.pdf

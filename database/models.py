@@ -1,5 +1,6 @@
 import logging
 from database.db import get_connection
+from database.pdf_files import export_legacy_blobs
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +36,12 @@ def create_tables():
             health_json  TEXT    NOT NULL,
             ai_report    TEXT    NOT NULL,
             pdf_blob     BLOB,
+            pdf_path     TEXT,
             generated_at TEXT    DEFAULT CURRENT_TIMESTAMP
         )
     """)
     _ensure_pdf_blob_nullable(cursor)
+    _ensure_pdf_path(cursor)
 
     # ── chat_history ───────────────────────────────────────────────────────
     cursor.execute("""
@@ -67,6 +70,8 @@ def create_tables():
     """)
 
     conn.commit()
+    export_legacy_blobs(conn)
+    conn.commit()
     conn.close()
     logger.info("Database tables and indexes verified / created.")
 
@@ -77,6 +82,14 @@ def _pdf_blob_notnull(cursor) -> bool:
         if row["name"] == "pdf_blob":
             return bool(row["notnull"])
     return False
+
+
+def _ensure_pdf_path(cursor) -> None:
+    cursor.execute("PRAGMA table_info(reports)")
+    names = {row["name"] for row in cursor.fetchall()}
+    if "pdf_path" not in names:
+        logger.info("Migration: adding reports.pdf_path")
+        cursor.execute("ALTER TABLE reports ADD COLUMN pdf_path TEXT")
 
 
 def _ensure_pdf_blob_nullable(cursor) -> None:

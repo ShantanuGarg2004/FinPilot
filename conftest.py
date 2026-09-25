@@ -10,6 +10,7 @@ This runs before any test module is imported, so it is the right place to:
 """
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,3 +28,7 @@ os.environ.setdefault("RATELIMIT_ENABLED", "true")
 # Tests use in-memory Wave 1 store by default (no Postgres required).
 os.environ.setdefault("RATELIMIT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("FLASK_ENV", "production")
+os.environ.setdefault(
+    "PDF_STORAGE_DIR",
+    os.path.join(tempfile.gettempdir(), "finpilot-pytest-pdfs"),
+)
