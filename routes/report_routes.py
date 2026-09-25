@@ -7,14 +7,13 @@ import tempfile
 from flask import Blueprint, jsonify, send_file, request
 from marshmallow import ValidationError
 
-from extensions import limiter
 from schemas import generate_report_schema
 from services.health_service import calculate_health_score
 from services.ai_service import generate_financial_report, http_status_for_ai_code
 from services.pdf_service import generate_pdf_report
 from routes.user_routes import get_user_by_id
 from database.db import get_connection
-import config as app_config
+from services.rate_limit.gateway import get_gateway
 
 logger = logging.getLogger(__name__)
 report_bp = Blueprint("report", __name__)
@@ -132,7 +131,6 @@ def _build_pdf_bytes(profile, health_data, ai_report) -> tuple[bool, bytes | str
 # ── Routes ─────────────────────────────────────────────────────────────────
 
 @report_bp.route("/report/<int:user_id>", methods=["GET"])
-@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def get_stored_report(user_id: int):
     """
     Fetch a previously generated report.
@@ -157,7 +155,6 @@ def get_stored_report(user_id: int):
 
 
 @report_bp.route("/generate-report", methods=["POST"])
-@limiter.limit(lambda: app_config.Config.RATELIMIT_LLM_REPORT)
 def generate_report():
     """
     Generate (or regenerate) a financial report.
@@ -256,7 +253,6 @@ def generate_report():
 
 
 @report_bp.route("/download-report/<int:user_id>", methods=["GET"])
-@limiter.limit(lambda: app_config.Config.RATELIMIT_READ)
 def download_report(user_id: int):
     """
     Download the stored PDF. If the blob is missing, regenerate from saved text
@@ -284,7 +280,13 @@ def download_report(user_id: int):
             mimetype="application/pdf",
         )
 
-    # Regenerate PDF from persisted advisory (Wave 2.4) — no Groq call
+    # Rebuild is a separate, tighter bucket than GET /report (Q1.4).
+    gw = get_gateway()
+    if gw is not None:
+        decision = gw.consume(request, gw.policies.pdf_rebuild)
+        if decision is not None and not decision.allowed:
+            return gw.denial_response(decision)
+
     stored = _load_report_from_db(user_id)
     if not stored:
         return jsonify({

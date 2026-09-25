@@ -105,6 +105,8 @@ Still open:
 
 Each wave is a shippable slice. Do not start a wave until its prerequisites in §4 are true.
 
+After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_AND_TEST_REPORT.md` with the command, pass/fail counts, and anything not run.
+
 ### Q1 — One enforcement path
 
 **Goal:** The gateway is the only limiter, unknown API routes are denied, and quotas have one source of truth.
@@ -118,6 +120,8 @@ Each wave is a shippable slice. Do not start a wave until its prerequisites in �
 | Q1.5 | Tests: unmapped route denied; env quota change changes the registry; download rebuild does not consume `read_report` the same way as `GET /report`. | G1–G4 |
 
 **Out of scope:** login, new databases, job queue.
+
+**Completed:** 2026-09-25. Quotas are parsed with the `limits` package. Unknown `/api` routes return `rate_policy_missing`. PDF rebuild uses `pdf_rebuild`, not `read_report`. Report: `docs/testing_reports/Q1_IMPLEMENTATION_AND_TEST_REPORT.md` (**68 passed**).
 
 ### Q2 — UX path correctness
 

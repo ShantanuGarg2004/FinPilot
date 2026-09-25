@@ -18,6 +18,22 @@ from .store import RateLimitStore
 logger = logging.getLogger(__name__)
 
 
+def is_application_api(path: str) -> bool:
+    """True for /api and /api/..., not for /apidocs (which only shares the /api prefix)."""
+    path = path or ""
+    return path == "/api" or path.startswith("/api/")
+
+
+def is_public_docs(path: str) -> bool:
+    path = path or ""
+    return (
+        path == "/apidocs"
+        or path.startswith("/apidocs/")
+        or path == "/apispec.json"
+        or path.startswith("/flasgger_static")
+    )
+
+
 def _extract_user_id(req: Request) -> int | None:
     # Path params like /report/12
     for part in (req.view_args or {}).values():
@@ -50,6 +66,12 @@ class RateLimitGateway:
 
         rules = self.policies.rules_for(req.method, req.path)
         if rules is None:
+            if is_application_api(req.path):
+                return LimitDecision(
+                    allowed=False,
+                    route_class=None,
+                    code="rate_policy_missing",
+                )
             return None
         if rules == []:
             return LimitDecision(allowed=True, route_class=None, exempt=True)
@@ -70,6 +92,16 @@ class RateLimitGateway:
             last_ok = decision
         return last_ok
 
+    def consume(self, req: Request, rule: LimitRule) -> LimitDecision | None:
+        """Count one extra bucket. Used for PDF rebuild, which is not a cheap read."""
+        if not Config.RATELIMIT_ENABLED:
+            return None
+        return self._apply_rule(
+            req.headers.get("X-API-Key", "") or "",
+            _extract_user_id(req),
+            rule,
+        )
+
     def _apply_rule(self, api_key: str, user_id: int | None, rule: LimitRule) -> LimitDecision | None:
         if rule.per_user and user_id is None:
             # Cannot enforce per-user without id — skip this rule rather than block reads.
@@ -86,7 +118,7 @@ class RateLimitGateway:
             result = self.store.incr_and_check(key, rule.window_seconds, rule.limit)
         except Exception:
             logger.exception("rate limit store error for %s", rule.route_class)
-            if PolicyRegistry.is_llm(rule.route_class):
+            if PolicyRegistry.is_expensive(rule.route_class):
                 # Fail closed for expensive LLM routes
                 return LimitDecision(
                     allowed=False,
@@ -118,8 +150,12 @@ class RateLimitGateway:
 
     def denial_response(self, decision: LimitDecision):
         body = {
-            "error": "Rate limit exceeded",
-            "code": "rate_limit_exceeded",
+            "error": (
+                "No rate policy for this route"
+                if decision.code == "rate_policy_missing"
+                else "Rate limit exceeded"
+            ),
+            "code": decision.code,
             "route_class": decision.route_class,
             "retry_after": decision.retry_after,
             "limit": decision.limit,

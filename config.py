@@ -49,16 +49,20 @@ class Config:
     RATELIMIT_DATABASE_URL = os.getenv("RATELIMIT_DATABASE_URL")
     FLASK_ENV = (os.getenv("FLASK_ENV") or os.getenv("FINPILOT_ENV") or "production").lower()
 
-    # Legacy Flask-Limiter string ceilings (kept for decorator compatibility;
-    # Wave 1 gateway uses PolicyRegistry integer quotas instead).
+    # Quota strings. PolicyRegistry parses these with the `limits` package.
     _dev = FLASK_ENV in ("development", "dev", "local")
-    RATELIMIT_READ = os.getenv(
-        "RATELIMIT_READ",
-        "600 per minute" if _dev else "120 per minute",
-    )
+    _read = "600 per minute" if _dev else "120 per minute"
+    _light = "600 per minute" if _dev else "300 per minute"
+    RATELIMIT_READ = os.getenv("RATELIMIT_READ", _read)
+    RATELIMIT_READ_LIGHT = os.getenv("RATELIMIT_READ_LIGHT", _light)
+    RATELIMIT_READ_CHAT = os.getenv("RATELIMIT_READ_CHAT", _read)
+    RATELIMIT_DOWNLOAD = os.getenv("RATELIMIT_DOWNLOAD", _read)
+    RATELIMIT_PDF_REBUILD = os.getenv("RATELIMIT_PDF_REBUILD", "5 per minute")
     RATELIMIT_WRITE_PROFILE = os.getenv("RATELIMIT_WRITE_PROFILE", "30 per minute")
     RATELIMIT_LLM_CHAT = os.getenv("RATELIMIT_LLM_CHAT", "15 per minute")
+    RATELIMIT_LLM_CHAT_USER = os.getenv("RATELIMIT_LLM_CHAT_USER", "60 per hour")
     RATELIMIT_LLM_REPORT = os.getenv("RATELIMIT_LLM_REPORT", "5 per minute")
+    RATELIMIT_LLM_REPORT_USER = os.getenv("RATELIMIT_LLM_REPORT_USER", "10 per hour")
     RATELIMIT_GOAL = os.getenv("RATELIMIT_GOAL", "20 per minute")
 
     @classmethod

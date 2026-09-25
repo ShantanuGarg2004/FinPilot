@@ -12,7 +12,7 @@ from routes.goal_routes import goal_bp
 from database.models import create_tables
 from config import Config, recommended_worker_count
 from services.rate_limit import build_gateway
-from services.rate_limit.gateway import get_gateway, uses_custom_gateway
+from services.rate_limit.gateway import get_gateway, is_application_api, is_public_docs, uses_custom_gateway
 
 # ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -47,32 +47,49 @@ def create_app():
     # Init app DB (SQLite profiles/reports/chat)
     create_tables()
 
+    def _presented_api_key() -> str:
+        header = request.headers.get("X-API-Key", "") or ""
+        if header:
+            return header
+        # Browser login prompt for Swagger. Username is ignored; password is the API key.
+        auth = request.authorization
+        if auth and auth.password:
+            return auth.password
+        return ""
+
+    def _unauthorized(challenge_docs: bool = False):
+        logger.warning("Rejected request — bad API key from %s", request.remote_addr)
+        resp = jsonify({
+            "error": "Unauthorised — invalid or missing X-API-Key header",
+            "code": "unauthorized",
+        })
+        resp.status_code = 401
+        if challenge_docs:
+            resp.headers["WWW-Authenticate"] = 'Basic realm="FinPilot API docs"'
+        return resp
+
     # ── Auth then rate-limit ───────────────────────────────────────────────
     @app.before_request
     def require_api_key():
         if request.method == "OPTIONS":
             return
-        open_paths = ("/apidocs/", "/apispec.json", "/flasgger_static")
         if request.path == "/" or request.path.rstrip("/") == "/api/health":
             return
-        if any(request.path.startswith(p) for p in open_paths):
+        if is_public_docs(request.path):
+            if _presented_api_key() != Config.API_SECRET_KEY:
+                return _unauthorized(challenge_docs=True)
             return
-        if not request.path.startswith("/api"):
+        if not is_application_api(request.path):
             return
 
-        client_key = request.headers.get("X-API-Key", "")
-        if client_key != Config.API_SECRET_KEY:
-            logger.warning("Rejected request — bad API key from %s", request.remote_addr)
-            return jsonify({
-                "error": "Unauthorised — invalid or missing X-API-Key header",
-                "code": "unauthorized",
-            }), 401
+        if _presented_api_key() != Config.API_SECRET_KEY:
+            return _unauthorized()
 
     @app.before_request
     def enforce_rate_limit():
         if request.method == "OPTIONS":
             return
-        if not request.path.startswith("/api"):
+        if is_public_docs(request.path) or not is_application_api(request.path):
             return
         if request.path.rstrip("/") == "/api/health":
             return
@@ -117,7 +134,18 @@ def create_app():
         "swagger_ui": True,
         "specs_route": "/apidocs/",
     }
-    Swagger(app, config=swagger_config)
+    swagger_template = {
+        "securityDefinitions": {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "name": "X-API-Key",
+                "in": "header",
+                "description": "Same value as API_SECRET_KEY",
+            }
+        },
+        "security": [{"ApiKeyAuth": []}],
+    }
+    Swagger(app, config=swagger_config, template=swagger_template)
 
     @app.route("/")
     def home():

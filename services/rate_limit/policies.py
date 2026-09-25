@@ -4,6 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from limits import parse
+
 from config import Config
 
 
@@ -25,33 +27,30 @@ class LimitDecision:
     window_seconds: int | None = None
     fail_open: bool = False
     exempt: bool = False
+    code: str = "rate_limit_exceeded"
 
 
-def _per_min(n: int) -> tuple[int, int]:
-    return n, 60
-
-
-def _per_hour(n: int) -> tuple[int, int]:
-    return n, 3600
+def _rule(route_class: str, expr: str, per_user: bool = False) -> LimitRule:
+    """Parse a limits expression such as '5 per minute' or '10 per hour'."""
+    item = parse(expr)
+    return LimitRule(route_class, int(item.amount), int(item.get_expiry()), per_user)
 
 
 class PolicyRegistry:
     """Map method + path → one or more LimitRules."""
 
     def __init__(self) -> None:
-        dev = Config.FLASK_ENV in ("development", "dev", "local")
-        read_min = 600 if dev else 120
-        light_min = 600 if dev else 300
-
-        self.read_light = LimitRule("read_light", *_per_min(light_min))
-        self.read_report = LimitRule("read_report", *_per_min(read_min))
-        self.read_chat = LimitRule("read_chat", *_per_min(read_min))
-        self.write_profile = LimitRule("write_profile", *_per_min(30))
-        self.write_goal = LimitRule("write_goal", *_per_min(20))
-        self.llm_chat = LimitRule("llm_chat", *_per_min(15))
-        self.llm_chat_user = LimitRule("llm_chat", *_per_hour(60), per_user=True)
-        self.llm_report = LimitRule("llm_report", *_per_min(5))
-        self.llm_report_user = LimitRule("llm_report", *_per_hour(10), per_user=True)
+        self.read_light = _rule("read_light", Config.RATELIMIT_READ_LIGHT)
+        self.read_report = _rule("read_report", Config.RATELIMIT_READ)
+        self.read_chat = _rule("read_chat", Config.RATELIMIT_READ_CHAT)
+        self.read_download = _rule("read_download", Config.RATELIMIT_DOWNLOAD)
+        self.pdf_rebuild = _rule("pdf_rebuild", Config.RATELIMIT_PDF_REBUILD)
+        self.write_profile = _rule("write_profile", Config.RATELIMIT_WRITE_PROFILE)
+        self.write_goal = _rule("write_goal", Config.RATELIMIT_GOAL)
+        self.llm_chat = _rule("llm_chat", Config.RATELIMIT_LLM_CHAT)
+        self.llm_chat_user = _rule("llm_chat", Config.RATELIMIT_LLM_CHAT_USER, per_user=True)
+        self.llm_report = _rule("llm_report", Config.RATELIMIT_LLM_REPORT)
+        self.llm_report_user = _rule("llm_report", Config.RATELIMIT_LLM_REPORT_USER, per_user=True)
 
     def rules_for(self, method: str, path: str) -> list[LimitRule] | None:
         """Return rules to apply, [] for exempt, None if no policy (allow)."""
@@ -68,7 +67,7 @@ class PolicyRegistry:
         if method == "GET" and re.match(r"^/api/report/\d+$", path):
             return [self.read_report]
         if method == "GET" and re.match(r"^/api/download-report/\d+$", path):
-            return [self.read_report]
+            return [self.read_download]
         if method == "GET" and re.match(r"^/api/chat/history/\d+$", path):
             return [self.read_chat]
 
@@ -91,3 +90,7 @@ class PolicyRegistry:
     @staticmethod
     def is_llm(route_class: str | None) -> bool:
         return route_class in ("llm_chat", "llm_report")
+
+    @staticmethod
+    def is_expensive(route_class: str | None) -> bool:
+        return PolicyRegistry.is_llm(route_class) or route_class == "pdf_rebuild"

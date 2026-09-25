@@ -66,6 +66,8 @@ export function toApiError(input, res = null, data = null) {
     message = retryAfter
       ? `Too many requests. Try again in ${retryAfter}s.`
       : "Too many requests. Please wait a moment and try again.";
+  } else if (code === "rate_policy_missing") {
+    message = "This API route is not available.";
   } else if (code === "upstream_timeout") {
     message = "The AI provider took too long. Please retry.";
   } else if (code === "upstream_rate_limit") {
