@@ -15,7 +15,7 @@ goal-feasibility simulations for Indian retail investors.
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?logo=flask&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![Vite](https://img.shields.io/badge/Vite-Frontend-646CFF?logo=vite&logoColor=white)
-![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
 ![Groq](https://img.shields.io/badge/Groq-LLM-F55036?logo=groq&logoColor=white)
 
 </div>
@@ -55,8 +55,10 @@ appetite, goals, and an optional EMI figure — and layers three independent eng
 3. **Goal-feasibility simulator** — SIP (Systematic Investment Plan) annuity-due mathematics
    that projects Conservative / Balanced / Aggressive investment scenarios.
 
-Reports are rendered to branded PDF documents, persisted to SQLite, and served through a
-fully documented, rate-limited, API-key-protected REST API with an interactive Swagger UI.
+Reports are rendered to branded PDF documents on disk. Profiles, reports, and chat live in
+PostgreSQL. The browser signs in with an email and password and keeps an HttpOnly session
+cookie. Scripts and Swagger still send `X-API-Key`. A rate-limit gateway sits in front of
+the API, with its own PostgreSQL database. Swagger is on only when `FLASK_ENV` is local.
 
 ---
 
@@ -66,16 +68,21 @@ fully documented, rate-limited, API-key-protected REST API with an interactive S
   emergency fund, debt-to-income, retirement adequacy, tax efficiency, surplus buffer).
 - **AI-Generated Advisory Reports** — structured, section-based reports grounded in the
   user's real figures, produced via Groq (`openai/gpt-oss-120b` by default).
-- **Conversational Advisor Chat** — per-user chat with persistent history stored in SQLite.
+- **Conversational Advisor Chat** — per-profile chat with history stored in PostgreSQL.
 - **Goal Feasibility Simulator** — SIP PMT–based required-contribution calculator with three
   CAGR scenarios, feasibility scoring, and a recommended timeline.
 - **PDF Report Generation** — branded, multi-section advisory PDFs via ReportLab (cover page,
   snapshot, insights, warnings, AI recommendations, action checklist, disclaimer).
-- **Persistent Storage** — SQLite with WAL journaling, foreign-key enforcement, and indexed
-  lookups for users, reports, and chat history.
-- **API Security** — global `X-API-Key` enforcement on all `/api/*` routes.
-- **Rate Limiting** — global and per-route limits via Flask-Limiter.
-- **Swagger / OpenAPI Docs** — interactive documentation at `/apidocs/`.
+- **Persistent storage** — PostgreSQL database `finpilot` for accounts, profiles, reports, and
+  chat. PDF files live under `data/pdfs`. The limiter uses a separate database,
+  `finpilot_ratelimit`.
+- **Sign-in** — email and a Werkzeug password hash. The browser session is an HttpOnly cookie,
+  `finpilot_session`. A signed-in person only sees their own profiles.
+- **API key** — `X-API-Key` remains for Swagger and local scripts. It can read every profile.
+  The React app does not send it.
+- **Rate limiting** — one gateway. Quotas come from config. Unknown `/api` routes are denied.
+- **Swagger / OpenAPI** — `http://127.0.0.1:5000/apidocs/` when `FLASK_ENV` is `development`,
+  `dev`, or `local`. Password is `API_SECRET_KEY` (any username).
 - **Strict Request Validation** — Marshmallow schemas on every mutating endpoint.
 - **React + Vite Frontend** — a polished single-page client (`frontend/`) that consumes the API.
 
@@ -90,8 +97,8 @@ flowchart LR
     end
 
     subgraph API["Flask API — app.py (create_app)"]
-        MW["Auth Middleware<br/>X-API-Key check"]
-        RL["Rate Limiter<br/>Flask-Limiter"]
+        MW["Actor<br/>session cookie or X-API-Key"]
+        RL["Rate-limit gateway"]
         SW["Swagger UI<br/>/apidocs"]
         UB["user_routes<br/>/api/profile · /api/users"]
         RB["report_routes<br/>/api/generate-report · /api/download-report"]
@@ -110,14 +117,16 @@ flowchart LR
         OAI["Groq API<br/>report + chat models"]
     end
 
-    subgraph DATA["SQLite — finance.db (WAL)"]
-        DB[("users · reports · chat_history")]
+    subgraph DATA["PostgreSQL"]
+        DB[("finpilot<br/>accounts · users · reports · chat")]
+        RLDB[("finpilot_ratelimit<br/>rate-limit buckets")]
     end
 
-    UI -- "HTTP + X-API-Key" --> MW
+    UI -- "HTTP + session cookie" --> MW
     MW --> RL
     RL --> UB & RB & CB & GB
 
+    RL --> RLDB
     UB --> DB
     RB --> HS & AS & PS & DB
     CB --> AS & DB
@@ -127,13 +136,14 @@ flowchart LR
 
 **Layer summary**
 
-1. Every `/api/*` request (except `OPTIONS` and doc routes) passes the `X-API-Key` check and
-   the rate limiter before reaching a blueprint.
+1. Every `/api/*` request (except `OPTIONS`, health, sign-in, sign-up, and sign-out) needs a
+   session cookie or a valid `X-API-Key`, then the rate-limit gateway, before a blueprint runs.
 2. Route handlers validate incoming JSON against Marshmallow schemas, then delegate to the
    service layer.
 3. `health_service` computes a deterministic 0–100 score, `goal_service` runs SIP
    projections, `ai_service` calls Groq, and `pdf_service` renders the final PDF.
-4. All persistent state lives in SQLite, accessed through a shared WAL-mode connection helper.
+4. Accounts, profiles, reports, and chat live in PostgreSQL (`finpilot`) through a connection
+   pool. Advisory PDFs are files on disk. Rate-limit counters live in `finpilot_ratelimit`.
 
 > A deeper engineering write-up — including the data model, per-service diagrams, and a full
 > production-readiness assessment — lives in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -148,10 +158,10 @@ sequenceDiagram
     participant API as Flask API
     participant SC as Marshmallow
     participant S as Service Layer
-    participant DB as SQLite
+    participant DB as PostgreSQL
 
-    C->>API: HTTP request + X-API-Key
-    API->>API: Auth check + rate limit
+    C->>API: HTTP request + session cookie or X-API-Key
+    API->>API: Actor check + rate-limit gateway
     API->>SC: schema.load(json)
     alt invalid
         SC-->>C: 400 + field errors
@@ -170,13 +180,13 @@ sequenceDiagram
 
 | Layer | Technology |
 |---|---|
-| Backend framework | Flask, Flask-CORS, Flask-Limiter |
+| Backend framework | Flask, Flask-CORS, rate-limit gateway |
 | API documentation | Flasgger (Swagger UI) |
 | Validation | Marshmallow |
-| Database | SQLite (WAL mode, foreign keys enforced) |
+| Database | PostgreSQL 16 (`finpilot` for app data, `finpilot_ratelimit` for quotas) |
 | AI / LLM | Groq (`openai/gpt-oss-120b` report · `openai/gpt-oss-20b` chat) |
 | PDF generation | ReportLab |
-| Frontend | React 19, Vite, ESLint |
+| Frontend | React 19, Vite, Tailwind, ESLint |
 | Config | python-dotenv |
 
 ---
@@ -191,11 +201,12 @@ FinPilot/
 ├── schemas.py                 # Marshmallow request schemas (Profile, Report, Chat, GoalPlan)
 ├── requirements.txt           # Python dependencies
 ├── database/
-│   ├── db.py                  # SQLite connection helper (WAL, foreign keys)
-│   └── models.py              # Table creation (users, reports, chat_history) + indexes
-├── models/
-│   └── user_model.py          # UserProfile data class
+│   ├── db.py                  # PostgreSQL pool (one connection per request)
+│   ├── models.py              # Table creation for accounts, users, reports, chat
+│   ├── repository.py          # Profile, report, chat, and account SQL
+│   └── sqlite_import.py       # One-time copy from finance.db when finpilot is empty
 ├── routes/
+│   ├── auth_routes.py         # Sign-up, sign-in, sign-out, current account
 │   ├── user_routes.py         # Profile CRUD (/api/profile, /api/users)
 │   ├── report_routes.py       # Report generation, retrieval, PDF download
 │   ├── chat_routes.py         # Chat + chat-history retrieval/deletion
@@ -209,17 +220,8 @@ FinPilot/
 ├── utils/
 │   └── prompt_builder.py      # Deterministic, grounded prompt construction for the LLM
 ├── frontend/
-│   ├── src/
-│   │   ├── FinancialAdvisor.jsx  # Main UI (profile, report, chat, simulator)
-│   │   ├── App.jsx               # Root component
-│   │   ├── main.jsx              # React entry point
-│   │   └── index.css             # Styling
-│   ├── package.json
-│   ├── vite.config.js
-│   └── eslint.config.js
-├── tests/                     # Offline unit tests (config + ai_service, Groq mocked)
-│   ├── test_config.py
-│   └── test_ai_service.py
+│   └── src/                   # Sign-in gate, profile, dashboard, chat, goals
+├── tests/                     # Pytest. Groq is mocked. App DB is finpilot_test.
 ├── conftest.py                # Pytest bootstrap (sys.path + deterministic test env)
 └── docs/
     └── ARCHITECTURE.md        # Detailed architecture & production-readiness reference
@@ -232,6 +234,7 @@ FinPilot/
 ### Prerequisites
 
 - Python 3.10+
+- Docker (local PostgreSQL 16)
 - A Groq API key
 - Node.js 18+ (for the frontend)
 
@@ -260,26 +263,27 @@ Create a `.env` file in the project root:
 ```env
 GROQ_API_KEY=your-groq-api-key
 API_SECRET_KEY=your-chosen-api-secret
-RATELIMIT_STORAGE_URI=memory://
+FLASK_ENV=development
 RATELIMIT_STORAGE_BACKEND=sql
 RATELIMIT_DATABASE_URL=postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot_ratelimit
+APP_DATABASE_URL=postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot
 
 # Optional — per-service model overrides (defaults shown)
 GROQ_REPORT_MODEL=openai/gpt-oss-120b
 GROQ_CHAT_MODEL=openai/gpt-oss-20b
 ```
 
-> `GROQ_API_KEY` and `API_SECRET_KEY` are **required** — the server refuses to start
-> without them. `RATELIMIT_STORAGE_URI` remains the Flask-Limiter fallback (`memory://` for local).
-> Wave 1 SQL limiter uses `RATELIMIT_STORAGE_BACKEND=sql` + `RATELIMIT_DATABASE_URL` (PostgreSQL).
-> See `.env.example` and `docker-compose.yml` to run a local Postgres for rate limits.
+> `GROQ_API_KEY` and `API_SECRET_KEY` are **required**. `FLASK_ENV=development` turns Swagger on.
+> `APP_DATABASE_URL` is the application database. `RATELIMIT_DATABASE_URL` is only the limiter.
+> See `.env.example`.
 
-**Local PostgreSQL (rate-limit store):**
+**Local PostgreSQL:**
 
 ```bash
 docker compose up -d
-# schema auto-applies from database/sql/rate_limit_schema.sql
 ```
+
+The limiter schema is applied from `database/sql/rate_limit_schema.sql` on a new volume. The `finpilot` database is created when the API starts. If a `finance.db` file is present and `finpilot` has no profiles, those rows are copied once. Set `BOOTSTRAP_ACCOUNT_EMAIL` and `BOOTSTRAP_ACCOUNT_PASSWORD` when copied profiles have no account.
 
 Run the server:
 
@@ -290,13 +294,9 @@ python app.py
 Production uses several workers so one slow Groq call does not block every reader. See `docs/CAPACITY_RUNBOOK.md`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`). Defaults are 6 workers, a 90s Groq timeout, and a 120s worker timeout.
 
 - API base: `http://127.0.0.1:5000`
-- Interactive docs: `http://127.0.0.1:5000/apidocs/`
+- Interactive docs: `http://127.0.0.1:5000/apidocs/` (local `FLASK_ENV` only)
 
-Every `/api/*` request must include the header:
-
-```
-X-API-Key: your-chosen-api-secret
-```
+Sign in from the React app, or send `X-API-Key: your-chosen-api-secret` from curl and Swagger. Swagger first asks for HTTP Basic auth. The password is the same `API_SECRET_KEY`. Any username works.
 
 ### 3. Frontend setup
 
@@ -306,47 +306,47 @@ npm install
 npm run dev
 ```
 
-The dev server runs on Vite's default port (`http://localhost:5173`). It expects the API at
-`http://localhost:5000/api`; configure it via a `frontend/.env` file:
+The dev server runs at `http://localhost:5173` and proxies `/api` to Flask, so the session cookie stays on one origin. `frontend/.env`:
 
 ```env
-VITE_API_URL=http://127.0.0.1:5000/api
-VITE_API_KEY=your-chosen-api-secret
+VITE_API_URL=/api
 ```
+
+Do not put the API key in the frontend. Details are in [`frontend/README.md`](frontend/README.md).
 
 ### 4. Running tests
 
-The backend ships with an offline unit-test suite (Groq API calls are mocked, so no key or
-network is required):
+Groq calls are mocked. Tests use PostgreSQL database `finpilot_test` (Docker must be up locally; GitHub Actions starts its own Postgres):
 
 ```bash
-pip install pytest
-python -m pytest tests/ -v
+python -m pytest tests/ -q --tb=line --deselect tests/test_wave1_integration.py::test_sql_backend_ping_when_configured
 ```
 
 ---
 
 ## API Reference
 
-All endpoints (except `/`, `/apidocs/`, and `/apispec.json`) require an `X-API-Key` header
-matching `API_SECRET_KEY`.
+Health, sign-up, sign-in, and sign-out are public. `/api/auth/me` needs the session cookie. Other `/api/*` routes accept that cookie or `X-API-Key`. A cookie actor only sees their own profiles. The API key sees every profile.
 
-| Endpoint | Method | Rate limit | Description |
+| Endpoint | Method | Who | Description |
 |---|---|---|---|
-| `/` | GET | — | Health check / service banner |
-| `/apidocs/` | GET | — | Swagger UI |
-| `/api/users` | GET | default | List all saved user profiles |
-| `/api/profile` | POST | default | Create a new user profile |
-| `/api/profile/<user_id>` | DELETE | default | Delete a profile + associated report/chat |
-| `/api/generate-report` | POST | 5/min | Generate (or regenerate) an AI report + PDF |
-| `/api/report/<user_id>` | GET | default | Fetch a previously generated report |
-| `/api/download-report/<user_id>` | GET | default | Download the stored PDF report |
-| `/api/chat` | POST | 15/min | Send a message to the AI advisor |
-| `/api/chat/history/<user_id>` | GET | default | Fetch stored chat history |
-| `/api/chat/history/<user_id>` | DELETE | default | Clear chat history for a user |
-| `/api/goal-plan` | POST | 20/min | Run the goal feasibility simulation |
+| `/api/health` | GET | public | Liveness |
+| `/apidocs/` | GET | local env + Basic password `API_SECRET_KEY` | Swagger UI |
+| `/api/auth/signup` | POST | public | Create an account and set the session cookie |
+| `/api/auth/login` | POST | public | Sign in and set the session cookie |
+| `/api/auth/logout` | POST | public | Clear the session cookie |
+| `/api/auth/me` | GET | session cookie | Current account |
+| `/api/users` | GET | cookie or API key | List profiles for that actor |
+| `/api/profile` | POST | cookie or API key | Create a profile |
+| `/api/profile/<user_id>` | DELETE | cookie or API key | Delete a profile, its report, and its chat |
+| `/api/generate-report` | POST | cookie or API key | Generate an AI report, then a PDF |
+| `/api/report/<user_id>` | GET | cookie or API key | Fetch a stored report |
+| `/api/download-report/<user_id>` | GET | cookie or API key | Download the PDF |
+| `/api/chat` | POST | cookie or API key | Send a message to the advisor |
+| `/api/chat/history/<user_id>` | GET, DELETE | cookie or API key | Read or clear chat history |
+| `/api/goal-plan` | POST | cookie or API key | Run the goal feasibility simulation |
 
-Default rate limits (unless overridden per route): **200 requests/day, 60 requests/hour**, per client IP.
+Quotas are per route class in config (for example chat 15 per minute, report generation 5 per minute). The gateway is the only limiter. Unknown `/api` paths return 429 `rate_policy_missing`.
 
 <details>
 <summary>Example: create a profile</summary>
@@ -411,25 +411,25 @@ Where `P` is the required monthly SIP, `FV` is the target amount, `r` is the mon
 
 ## Database Schema
 
+Database `finpilot` on PostgreSQL:
+
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `users` | Stores financial profiles | Auto-incrementing primary key `id` |
-| `reports` | Stores generated reports + PDF blobs | `user_id` unique, FK to `users`, cascade delete |
-| `chat_history` | Stores per-user chat messages | FK to `users`, cascade delete, `role ∈ {user, ai}` |
+| `accounts` | Email and password hash | Unique email |
+| `users` | Financial profiles owned by an account | `account_id` references `accounts` |
+| `reports` | Advisory text and the PDF file name | `user_id` unique, cascade delete. `pdf_blob` is nullable leftover storage |
+| `chat_history` | Per-profile chat messages | Cascade delete, `role ∈ {user, ai}` |
 
-Indexes are created on `reports(user_id)` and the composite `chat_history(user_id, id DESC)`
-to optimise the most frequent lookup and pagination patterns.
+Indexes cover `reports(user_id)`, `chat_history(user_id, id DESC)`, and `users(account_id)`. PDF bytes are files named `profile_<user_id>.pdf` under `data/pdfs`.
+
+Rate-limit counters stay in database `finpilot_ratelimit`, not in these tables.
 
 ---
 
 ## Roadmap
 
-- Serve behind a production WSGI server (gunicorn/waitress) with `debug=False`.
-- Replace the shared API key with per-user authentication and authorisation.
-- Migrate storage from SQLite to PostgreSQL and move rate-limit state to Redis for
-  multi-instance deployments.
-- Extend automated test coverage to the deterministic scoring and simulation engines
-  (config and AI-service layers are already unit-tested — see [`tests/`](tests/)).
+- Move report generation off the request thread if live Groq calls saturate the workers.
+- Confirm capacity with about 100 concurrent people. The Q6 check measured a smaller read burst. See `docs/testing_reports/Q6_IMPLEMENTATION_AND_TEST_REPORT.md`.
 - Support live market data for CAGR assumptions instead of static tiers.
 
 ---

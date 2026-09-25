@@ -1,16 +1,48 @@
-# React + Vite
+# FinPilot frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 and Vite client for FinPilot. Sign-in uses an HttpOnly session cookie. The browser does not send `X-API-Key`.
 
-Currently, two official plugins are available:
+The platform overview, API, and database notes live in the repository [README](../README.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run it
 
-## React Compiler
+PostgreSQL and the Flask API must already be up. From the repo root that is `docker compose up -d`, then `python app.py` on port 5000.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## Expanding the ESLint configuration
+Open `http://localhost:5173`. Vite proxies `/api` to `http://127.0.0.1:5000`, so the page and the API share one origin and the session cookie is sent.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+`frontend/.env` only needs:
+
+```env
+VITE_API_URL=/api
+```
+
+Leave that unset and the client still defaults to `/api`. Do not put `API_SECRET_KEY` or `VITE_API_KEY` in this folder. That key is for Swagger and local scripts. A browser that sent it would see every profile.
+
+## What the screens do
+
+| Screen | Behavior |
+|---|---|
+| Sign in / create account | `POST /api/auth/login` and `POST /api/auth/signup`. The API sets `finpilot_session`. |
+| Signed out | `GET /api/auth/me` fails and the login page stays up. |
+| Profiles, report, chat, goals | Calls go through `src/config/api.js` with `credentials: "include"`. |
+| Sign out | `POST /api/auth/logout` and the active profile id is cleared from `sessionStorage`. |
+| Session ended | A 401 `session_expired` returns the person to sign-in. The message is “Your session ended. Sign in again.” |
+
+An account with no profiles yet sees “You are signed in and have no profiles yet.” Profiles copied from the old SQLite file belong to the bootstrap account, not to a brand-new signup.
+
+## Scripts
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server on port 5173 with the `/api` proxy |
+| `npm run build` | Production bundle |
+| `npm run preview` | Serves the production bundle |
+| `npm run lint` | ESLint |
+
+The proxy is only in the Vite dev server. A built bundle still calls `VITE_API_URL`. For a deployed site that must be the API’s public `/api` prefix, and the API `CORS_ORIGINS` list must include that site.
