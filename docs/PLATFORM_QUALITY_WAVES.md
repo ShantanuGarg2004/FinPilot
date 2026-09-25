@@ -139,6 +139,8 @@ After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_
 
 **Out of scope:** new visual design, authentication screens.
 
+**Completed:** 2026-09-25. Chat history is saved only after a successful reply. Report: `docs/testing_reports/Q2_IMPLEMENTATION_AND_TEST_REPORT.md` (**74 passed**).
+
 ### Q3 — Data access fit for contention
 
 **Goal:** Handlers stop owning SQL. Writes stay short. PDF bytes stop being the hot SQLite payload. Still no per-person login.

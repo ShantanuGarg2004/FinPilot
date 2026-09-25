@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "../config/api";
 import { formatApiErrorMessage, toastTypeForError } from "../lib/apiErrors";
+import { invalidateChat } from "../lib/chatStore";
+import { invalidateGoal } from "../lib/goalStore";
+import { invalidateReport } from "../lib/reportStore";
 
 function notify(showToast, err, fallback) {
   const type = toastTypeForError(err);
@@ -53,6 +56,9 @@ export default function useProfiles(showToast) {
 
   const remove = useCallback(async (id) => {
     await apiFetch(`/profile/${id}`, { method: "DELETE" });
+    invalidateReport(id);
+    invalidateChat(id);
+    invalidateGoal(id);
     setUsers((u) => u.filter((x) => x.id !== id));
   }, []);
 

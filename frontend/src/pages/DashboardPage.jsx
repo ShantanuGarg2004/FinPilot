@@ -50,6 +50,11 @@ export default function DashboardPage({ userId, user, onNavigate }) {
     <div className="grid grid-cols-12 gap-xl">
       <div className="col-span-12 lg:col-span-8 space-y-xl">
         <LoadErrorBanner error={loadError} onRetry={retryLoad} resource="health score" />
+        {report && report.pdf_ready === false && (
+          <p className="text-[12px] text-warning">
+            Advisory text is saved. The PDF is not ready yet — open Advisory and download to build it.
+          </p>
+        )}
 
         {/* Health score + pillars — airy upper band */}
         <GlassPanel as="section" className="p-lg md:p-xl">

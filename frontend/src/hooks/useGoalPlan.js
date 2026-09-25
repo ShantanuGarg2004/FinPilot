@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { apiFetch } from "../config/api";
 import { formatApiErrorMessage, toastTypeForError } from "../lib/apiErrors";
+import { peekGoal, setGoal } from "../lib/goalStore";
 
 export default function useGoalPlan(userId, showToast) {
-  const [result, setResult] = useState(null);
+  const [result, setResult] = useState(() => peekGoal(userId));
   const [loading, setLoading] = useState(false);
 
   const simulate = async ({ goal_name, target_amount, time_years }) => {
@@ -28,7 +29,7 @@ export default function useGoalPlan(userId, showToast) {
           time_years: years,
         }),
       });
-      setResult(data);
+      setResult(setGoal(userId, data));
     } catch (e) {
       const type = toastTypeForError(e) || "error";
       showToast?.(formatApiErrorMessage(e, "Could not run simulation"), type);

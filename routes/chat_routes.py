@@ -103,11 +103,6 @@ def chat():
 
     history = _load_history(user_id, limit=20)
 
-    try:
-        _save_message(user_id, "user", user_query)
-    except Exception:
-        logger.exception("chat: failed to persist user message for user #%d", user_id)
-
     status, response_text = chat_with_advisor(profile, user_query, history)
     if not status:
         logger.error("chat: AI error for user #%d — %s", user_id, response_text)
@@ -121,9 +116,14 @@ def chat():
         return jsonify({"error": str(response_text), "code": "upstream_error"}), 503
 
     try:
+        _save_message(user_id, "user", user_query)
         _save_message(user_id, "ai", response_text)
     except Exception:
-        logger.exception("chat: failed to persist AI response for user #%d", user_id)
+        logger.exception("chat: failed to persist turn for user #%d", user_id)
+        return jsonify({
+            "error": "The reply was generated but could not be saved",
+            "code": "server_error",
+        }), 500
 
     logger.info("chat: response delivered for user #%d (%d chars)", user_id, len(response_text))
     return jsonify({
