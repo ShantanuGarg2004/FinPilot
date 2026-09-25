@@ -174,6 +174,8 @@ After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_
 
 **Out of scope:** passwords, OAuth, sessions, signup UI.
 
+**Completed:** 2026-09-25. One `Actor` is resolved before the gateway. Bucket ids come from `Actor.rate_limit_subject()`. Chat, generate, goal, and profile delete have a per-profile ceiling as well as the shared-key ceiling. CORS allows `http://localhost:5173` and `http://127.0.0.1:5173` unless `CORS_ORIGINS` says otherwise. Swagger is off unless `FLASK_ENV` is local. Threat note: `docs/IDENTITY_SEAM.md`. Report: `docs/testing_reports/Q4_IMPLEMENTATION_AND_TEST_REPORT.md`.
+
 ### Q5 — Per-person auth
 
 **Goal:** A person signs in. Financial profiles belong to that account. `X-API-Key` is no longer the browser credential.

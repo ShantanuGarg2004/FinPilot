@@ -47,6 +47,8 @@ class PolicyRegistry:
         self.pdf_rebuild = _rule("pdf_rebuild", Config.RATELIMIT_PDF_REBUILD)
         self.write_profile = _rule("write_profile", Config.RATELIMIT_WRITE_PROFILE)
         self.write_goal = _rule("write_goal", Config.RATELIMIT_GOAL)
+        self.write_goal_user = _rule("write_goal", Config.RATELIMIT_GOAL_USER, per_user=True)
+        self.delete_profile_user = _rule("write_profile", Config.RATELIMIT_DELETE_USER, per_user=True)
         self.llm_chat = _rule("llm_chat", Config.RATELIMIT_LLM_CHAT)
         self.llm_chat_user = _rule("llm_chat", Config.RATELIMIT_LLM_CHAT_USER, per_user=True)
         self.llm_report = _rule("llm_report", Config.RATELIMIT_LLM_REPORT)
@@ -74,12 +76,12 @@ class PolicyRegistry:
         if method == "POST" and path.rstrip("/") == "/api/profile":
             return [self.write_profile]
         if method == "DELETE" and re.match(r"^/api/profile/\d+$", path):
-            return [self.write_profile]
+            return [self.write_profile, self.delete_profile_user]
         if method == "DELETE" and re.match(r"^/api/chat/history/\d+$", path):
             return [self.write_profile]
 
         if method == "POST" and path.rstrip("/") == "/api/goal-plan":
-            return [self.write_goal]
+            return [self.write_goal, self.write_goal_user]
         if method == "POST" and path.rstrip("/") == "/api/chat":
             return [self.llm_chat, self.llm_chat_user]
         if method == "POST" and path.rstrip("/") == "/api/generate-report":

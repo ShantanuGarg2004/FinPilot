@@ -1,5 +1,5 @@
 import logging
-from flask import Flask, request, jsonify
+from flask import Flask, g, request, jsonify
 from flask_cors import CORS
 from flask_limiter.errors import RateLimitExceeded
 from flasgger import Swagger
@@ -12,6 +12,7 @@ from routes.goal_routes import goal_bp
 from database.models import create_tables
 from database.db import close_request_connection
 from config import Config, recommended_worker_count
+from services.actor import Actor, resolve_actor
 from services.rate_limit import build_gateway
 from services.rate_limit.gateway import get_gateway, is_application_api, is_public_docs, uses_custom_gateway
 
@@ -27,7 +28,7 @@ def create_app():
     Config.validate()
 
     app = Flask(__name__)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(app, resources={r"/api/*": {"origins": Config.CORS_ORIGINS}})
 
     # Wave 1: custom gateway owns limits when backend is sql|memory.
     # Keep Flask-Limiter imported for route decorators but disable it to avoid double-counting.
@@ -49,15 +50,8 @@ def create_app():
     create_tables()
     app.teardown_appcontext(close_request_connection)
 
-    def _presented_api_key() -> str:
-        header = request.headers.get("X-API-Key", "") or ""
-        if header:
-            return header
-        # Browser login prompt for Swagger. Username is ignored; password is the API key.
-        auth = request.authorization
-        if auth and auth.password:
-            return auth.password
-        return ""
+    def _local_env() -> bool:
+        return Config.FLASK_ENV in ("development", "dev", "local")
 
     def _unauthorized(challenge_docs: bool = False):
         logger.warning("Rejected request — bad API key from %s", request.remote_addr)
@@ -70,21 +64,32 @@ def create_app():
             resp.headers["WWW-Authenticate"] = 'Basic realm="FinPilot API docs"'
         return resp
 
+    def _bind_actor():
+        actor = resolve_actor(request)
+        if actor is None:
+            return None
+        g.actor = actor
+        return actor
+
     # ── Auth then rate-limit ───────────────────────────────────────────────
     @app.before_request
     def require_api_key():
         if request.method == "OPTIONS":
+            g.actor = Actor(kind="anonymous")
             return
         if request.path == "/" or request.path.rstrip("/") == "/api/health":
+            g.actor = Actor(kind="anonymous")
             return
         if is_public_docs(request.path):
-            if _presented_api_key() != Config.API_SECRET_KEY:
+            if not _local_env():
+                return jsonify({"error": "Not found", "code": "not_found"}), 404
+            if _bind_actor() is None:
                 return _unauthorized(challenge_docs=True)
             return
         if not is_application_api(request.path):
             return
 
-        if _presented_api_key() != Config.API_SECRET_KEY:
+        if _bind_actor() is None:
             return _unauthorized()
 
     @app.before_request
@@ -147,7 +152,10 @@ def create_app():
         },
         "security": [{"ApiKeyAuth": []}],
     }
-    Swagger(app, config=swagger_config, template=swagger_template)
+    if Config.FLASK_ENV in ("development", "dev", "local"):
+        Swagger(app, config=swagger_config, template=swagger_template)
+    else:
+        logger.info("Swagger disabled because FLASK_ENV=%s", Config.FLASK_ENV)
 
     @app.route("/")
     def home():

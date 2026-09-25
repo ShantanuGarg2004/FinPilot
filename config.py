@@ -11,6 +11,12 @@ def _env_bool(name: str, default: bool = True) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _split_csv(raw: str | None, default: list[str]) -> list[str]:
+    if raw is None:
+        return list(default)
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name)
     if raw is None or not str(raw).strip():
@@ -67,6 +73,14 @@ class Config:
     RATELIMIT_LLM_REPORT = os.getenv("RATELIMIT_LLM_REPORT", "5 per minute")
     RATELIMIT_LLM_REPORT_USER = os.getenv("RATELIMIT_LLM_REPORT_USER", "10 per hour")
     RATELIMIT_GOAL = os.getenv("RATELIMIT_GOAL", "20 per minute")
+    RATELIMIT_GOAL_USER = os.getenv("RATELIMIT_GOAL_USER", "60 per hour")
+    RATELIMIT_DELETE_USER = os.getenv("RATELIMIT_DELETE_USER", "30 per hour")
+
+    # Q4: browser origins. Unset means local Vite only. Empty is rejected in production.
+    CORS_ORIGINS = _split_csv(
+        os.getenv("CORS_ORIGINS"),
+        ["http://localhost:5173", "http://127.0.0.1:5173"],
+    )
 
     @classmethod
     def validate(cls):
@@ -82,6 +96,10 @@ class Config:
                     "RATELIMIT_STORAGE_BACKEND=sql requires RATELIMIT_DATABASE_URL "
                     "(PostgreSQL SQLAlchemy URL)."
                 )
+        if cls.FLASK_ENV not in ("development", "dev", "local") and not cls.CORS_ORIGINS:
+            raise EnvironmentError(
+                "CORS_ORIGINS must list at least one frontend origin when FLASK_ENV is not local."
+            )
         if cls.WORKER_TIMEOUT_SECONDS <= cls.GROQ_TIMEOUT_SECONDS:
             raise EnvironmentError(
                 "WORKER_TIMEOUT_SECONDS must be greater than GROQ_TIMEOUT_SECONDS "

@@ -6,9 +6,10 @@ import random
 import threading
 from typing import Any
 
-from flask import Request, jsonify
+from flask import Request, g, jsonify
 
 from config import Config
+from services.actor import Actor
 from .keys import build_bucket_key
 from .memory_store import MemoryRateLimitStore
 from .policies import LimitDecision, LimitRule, PolicyRegistry
@@ -76,14 +77,14 @@ class RateLimitGateway:
         if rules == []:
             return LimitDecision(allowed=True, route_class=None, exempt=True)
 
-        api_key = req.headers.get("X-API-Key", "") or ""
+        actor = _actor_for(req)
         user_id = _extract_user_id(req)
 
         maybe_cleanup()
 
         last_ok: LimitDecision | None = None
         for rule in rules:
-            decision = self._apply_rule(api_key, user_id, rule)
+            decision = self._apply_rule(actor, user_id, rule)
             if decision is None:
                 # store failure handled per fail-open/closed
                 continue
@@ -96,13 +97,9 @@ class RateLimitGateway:
         """Count one extra bucket. Used for PDF rebuild, which is not a cheap read."""
         if not Config.RATELIMIT_ENABLED:
             return None
-        return self._apply_rule(
-            req.headers.get("X-API-Key", "") or "",
-            _extract_user_id(req),
-            rule,
-        )
+        return self._apply_rule(_actor_for(req), _extract_user_id(req), rule)
 
-    def _apply_rule(self, api_key: str, user_id: int | None, rule: LimitRule) -> LimitDecision | None:
+    def _apply_rule(self, actor: Actor, user_id: int | None, rule: LimitRule) -> LimitDecision | None:
         if rule.per_user and user_id is None:
             # Cannot enforce per-user without id — skip this rule rather than block reads.
             return LimitDecision(
@@ -113,7 +110,11 @@ class RateLimitGateway:
                 window_seconds=rule.window_seconds,
             )
 
-        key = build_bucket_key(api_key, rule.route_class, user_id if rule.per_user else None)
+        key = build_bucket_key(
+            actor.rate_limit_subject(),
+            rule.route_class,
+            user_id if rule.per_user else None,
+        )
         try:
             result = self.store.incr_and_check(key, rule.window_seconds, rule.limit)
         except Exception:
@@ -215,6 +216,14 @@ def maybe_cleanup() -> None:
             logger.info("rate_limit cleanup removed %d stale buckets", removed)
     except Exception:
         logger.exception("rate_limit cleanup failed")
+
+
+def _actor_for(req: Request) -> Actor:
+    """Prefer the actor resolved by auth. Fall back so direct checks still have a subject."""
+    actor = getattr(g, "actor", None)
+    if isinstance(actor, Actor) and actor.kind != "anonymous":
+        return actor
+    return Actor(kind="api_key", credential=req.headers.get("X-API-Key", "") or "")
 
 
 def uses_custom_gateway() -> bool:

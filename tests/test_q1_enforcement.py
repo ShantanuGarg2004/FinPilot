@@ -1,6 +1,7 @@
 """Q1: one gateway, config quotas, fail-closed unknown routes, PDF rebuild bucket."""
 import json
 
+import app as app_mod
 import config
 import database.db as db_mod
 from app import create_app
@@ -23,6 +24,7 @@ def test_swagger_requires_api_key(tmp_path, monkeypatch):
     import base64
 
     monkeypatch.setattr(db_mod, "DB_NAME", str(tmp_path / "q1docs.db"))
+    monkeypatch.setattr(app_mod.Config, "FLASK_ENV", "development")
     monkeypatch.setattr(config.Config, "RATELIMIT_ENABLED", True)
     monkeypatch.setattr(config.Config, "RATELIMIT_STORAGE_BACKEND", "memory")
     gw_mod._gateway = None
