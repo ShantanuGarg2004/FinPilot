@@ -25,10 +25,12 @@ export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, 
       />
 
       {fullBleed ? (
-        <main className="lg:ml-56 pt-14 h-screen overflow-hidden">{children}</main>
+        <main className="lg:ml-56 pt-[var(--app-bar)] min-h-dvh lg:h-dvh lg:overflow-hidden overflow-x-hidden">
+          <div key={activePage} className="page-enter min-h-0">{children}</div>
+        </main>
       ) : (
-        <main className="lg:ml-56 pt-14 min-h-screen px-gutter pb-xl md:px-lg">
-          <div className="max-w-container-max mx-auto animate-fadeUp space-y-lg pt-xl md:pt-2xl">{children}</div>
+        <main className="lg:ml-56 pt-[var(--app-bar)] min-h-dvh px-4 pb-xl sm:px-gutter md:px-lg">
+          <div key={activePage} className="page-enter max-w-container-max mx-auto space-y-lg pt-lg md:pt-2xl">{children}</div>
         </main>
       )}
     </div>

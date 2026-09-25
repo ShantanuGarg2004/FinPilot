@@ -2,12 +2,12 @@ import Icon from "../Icon";
 
 export default function TopBar({ title, activeGoal, onNewProfile, onMenu }) {
   return (
-    <header className="fixed top-0 right-0 left-0 lg:left-56 h-14 z-30 bg-background/85 backdrop-blur-md border-b border-outline flex justify-between items-center px-gutter gap-3">
-      <div className="flex items-center gap-2 min-w-0">
-        <button onClick={onMenu} className="lg:hidden p-1.5 -ml-1 text-on-surface-variant hover:text-primary shrink-0">
-          <Icon name="menu" size={20} />
+    <header className="fixed top-0 right-0 left-0 lg:left-56 z-30 min-h-[var(--app-bar)] pt-[env(safe-area-inset-top)] bg-background/85 backdrop-blur-md border-b border-outline flex justify-between items-center px-3 sm:px-gutter gap-2">
+      <div className="flex items-center gap-1 min-w-0">
+        <button onClick={onMenu} aria-label="Open menu" className="lg:hidden min-h-11 min-w-11 -ml-1 inline-flex items-center justify-center text-on-surface-variant hover:text-primary shrink-0">
+          <Icon name="menu" size={22} />
         </button>
-        <h2 className="font-headline-md text-headline-md font-semibold text-on-surface truncate">{title}</h2>
+        <h2 className="font-headline-md text-[16px] leading-6 sm:text-headline-md font-semibold text-on-surface truncate">{title}</h2>
       </div>
 
       <div className="flex items-center gap-sm shrink-0">

@@ -173,10 +173,14 @@ export default function App() {
 
   return (
     <ToastProvider>
-      {!ready ? null : account ? (
-        <FinPilotApp account={account} onSignOut={signOut} />
-      ) : (
-        <LoginPage onSignedIn={setAccount} />
+      {!ready ? null : (
+        <div key={account ? "app" : "landing"} className="view-enter">
+          {account ? (
+            <FinPilotApp account={account} onSignOut={signOut} />
+          ) : (
+            <LoginPage onSignedIn={setAccount} />
+          )}
+        </div>
       )}
     </ToastProvider>
   );

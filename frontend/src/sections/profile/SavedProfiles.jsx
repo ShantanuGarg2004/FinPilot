@@ -61,7 +61,7 @@ export default function SavedProfiles({ users, loading, activeId, onSelect, onRe
                 </div>
                 <button
                   onClick={(e) => del(u.id, e)}
-                  className="shrink-0 p-1 rounded text-on-surface-variant/50 hover:text-error transition-colors"
+                  className="shrink-0 min-h-11 min-w-11 inline-flex items-center justify-center rounded text-on-surface-variant/50 hover:text-error transition-colors"
                   title="Delete profile"
                 >
                   <Icon name="delete" size={15} />

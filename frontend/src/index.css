@@ -3,6 +3,17 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --app-bar: calc(3.5rem + env(safe-area-inset-top, 0px));
+    --ink: #050505;
+    --gold: #e6c47a;
+    --gold-bright: #f2d58c;
+    --muted: #9aa0af;
+    --white: #f4f7fb;
+    --green: #22c995;
+    --lilac: #c1a4ff;
+  }
+
   html {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -66,6 +77,28 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #9aa8bc;
+}
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.page-enter {
+  animation: pageIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.view-enter {
+  animation: viewIn 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes viewIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter, .view-enter { animation: none; }
 }
 
 ::selection {

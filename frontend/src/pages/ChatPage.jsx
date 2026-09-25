@@ -24,7 +24,7 @@ export default function ChatPage({ userId, userGoal }) {
   };
 
   return (
-    <div className="h-[calc(100vh-56px)] flex">
+    <div className="h-[calc(100dvh-var(--app-bar))] flex min-w-0">
       <section className="w-64 xl:w-72 border-r border-outline hidden md:flex flex-col bg-surface/60 shrink-0">
         <div className="p-md space-y-sm">
           <h3 className="font-label-sm text-label-sm uppercase tracking-wider text-on-surface-variant opacity-70">
@@ -65,7 +65,7 @@ export default function ChatPage({ userId, userGoal }) {
         </div>
       </section>
 
-      <section className="flex-1 flex flex-col relative bg-surface-container-lowest min-w-0">
+      <section className="flex-1 flex flex-col relative bg-surface-container-lowest min-w-0 min-h-0">
         <div className="px-md pt-md">
           <LoadErrorBanner error={loadError} onRetry={retryLoad} resource="chat history" />
         </div>
@@ -86,21 +86,21 @@ export default function ChatPage({ userId, userGoal }) {
           ) : (
             messages.map((m, i) =>
               m.role === "ai" ? (
-                <div key={i} className="flex items-start gap-sm max-w-2xl">
+                <div key={i} className="flex items-start gap-sm max-w-[min(42rem,100%)] min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-info/15 border border-info/30 flex items-center justify-center shrink-0">
                     <Icon name="smart_toy" size={16} className="text-info" />
                   </div>
-                  <div className="bg-surface-container border border-outline/60 px-md py-sm rounded-xl rounded-tl-sm min-w-0">
+                  <div className="bg-surface-container border border-outline/60 px-md py-sm rounded-xl rounded-tl-sm min-w-0 break-words">
                     <MarkdownRenderer content={m.message} />
                   </div>
                 </div>
               ) : (
-                <div key={i} className="flex items-start gap-sm max-w-2xl ml-auto flex-row-reverse">
+                <div key={i} className="flex items-start gap-sm max-w-[min(42rem,100%)] ml-auto flex-row-reverse min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center shrink-0 border border-outline">
                     <Icon name="person" size={16} className="text-on-surface-variant" />
                   </div>
-                  <div className="bg-surface-container-high border border-primary/20 px-md py-sm rounded-xl rounded-tr-sm">
-                    <p className="text-[13px] leading-relaxed text-on-surface">{m.message}</p>
+                  <div className="bg-surface-container-high border border-primary/20 px-md py-sm rounded-xl rounded-tr-sm min-w-0 break-words">
+                    <p className="text-[13px] leading-relaxed text-on-surface break-words">{m.message}</p>
                   </div>
                 </div>
               )
@@ -114,7 +114,25 @@ export default function ChatPage({ userId, userGoal }) {
           <div ref={bottomRef} />
         </div>
 
-        <div className="px-md pb-md pt-sm border-t border-outline/60">
+        <div className="md:hidden px-3 pt-2 flex gap-2 overflow-x-auto">
+          {PROMPTS.map((p) => (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => !sending && send(p.query)}
+              className="shrink-0 px-3 py-2 rounded-full border border-outline bg-surface-container text-[12px] text-on-surface"
+            >
+              {p.label}
+            </button>
+          ))}
+          {messages.length > 0 && (
+            <button type="button" onClick={clear} className="shrink-0 px-3 py-2 rounded-full border border-outline text-[12px] text-on-surface-variant">
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div className="px-3 sm:px-md pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-sm border-t border-outline/60">
           <div className="glass-panel px-sm py-1 rounded-xl flex items-center gap-sm">
             <input
               value={input}

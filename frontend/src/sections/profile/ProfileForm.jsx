@@ -65,7 +65,7 @@ export default function ProfileForm({ onCreated }) {
             Enter your monthly financials to unlock AI advisory, chat, and goal simulation.
           </p>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 text-info bg-info/10 border border-info/25 rounded-full px-3 py-1">
+        <div className="hidden sm:flex items-center gap-1.5 shrink-0 text-info bg-info/10 border border-info/25 rounded-full px-3 py-1">
           <Icon name="verified_user" size={14} />
           <span className="font-label-sm text-label-sm">ENCRYPTED</span>
         </div>
@@ -76,13 +76,13 @@ export default function ProfileForm({ onCreated }) {
           <Icon name="account_balance_wallet" size={18} className="text-primary" />
           <h3 className="font-headline-md text-headline-md text-on-surface">Financial snapshot</h3>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-md">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-md">
           <TextField label="Age" type="number" value={form.age} onChange={(e) => set("age", e.target.value)} placeholder="28" />
           <TextField label="Monthly income" type="number" prefix="₹" value={form.income} onChange={(e) => set("income", e.target.value)} placeholder="150000" />
           <TextField label="Monthly expenses" type="number" prefix="₹" value={form.expenses} onChange={(e) => set("expenses", e.target.value)} placeholder="80000" />
           <TextField label="Monthly savings" type="number" prefix="₹" value={form.savings} onChange={(e) => set("savings", e.target.value)} placeholder="40000" />
           <TextField
-            className="col-span-2"
+            className="sm:col-span-2"
             label="Debt / EMI (optional)"
             type="number"
             prefix="₹"
@@ -98,7 +98,7 @@ export default function ProfileForm({ onCreated }) {
           <Icon name="monitor_heart" size={18} className="text-primary" />
           <h3 className="font-headline-md text-headline-md text-on-surface">Risk appetite</h3>
         </div>
-        <div className="grid grid-cols-3 gap-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-sm">
           {RISK_OPTIONS.map((opt) => {
             const active = form.risk_appetite === opt.value;
             return (
@@ -133,8 +133,8 @@ export default function ProfileForm({ onCreated }) {
         />
       </section>
 
-      <div className="pt-md border-t border-outline flex justify-end">
-        <Button type="submit" variant="primary" size="lg" loading={loading} loadingText="Creating…" trailingIcon="arrow_forward">
+      <div className="pt-md border-t border-outline flex justify-stretch sm:justify-end">
+        <Button type="submit" variant="primary" size="lg" loading={loading} loadingText="Creating…" trailingIcon="arrow_forward" className="w-full sm:w-auto">
           Continue to Dashboard
         </Button>
       </div>

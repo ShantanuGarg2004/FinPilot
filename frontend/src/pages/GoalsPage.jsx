@@ -46,9 +46,9 @@ function ScenarioCard({ sc }) {
       </div>
       <h4 className="font-headline-md text-headline-md mb-sm text-on-surface">{sc.scenario}</h4>
       <div className="space-y-1.5">
-        <div className="flex justify-between border-b border-outline/60 pb-1.5">
+        <div className="flex justify-between gap-3 border-b border-outline/60 pb-1.5">
           <span className="text-on-surface-variant text-[12px]">Monthly SIP</span>
-          <span className="text-[13px] font-semibold" style={{ color: meta.color }}>
+          <span className="text-[13px] font-semibold text-right" style={{ color: meta.color }}>
             ₹{formatINR(Math.round(sc.monthly_needed || 0))}
           </span>
         </div>
@@ -136,7 +136,7 @@ export default function GoalsPage({ userId, userGoal }) {
               <p className="font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">
                 Pilot AI Confidence Score
               </p>
-              <div className="text-[48px] font-bold leading-none tracking-tighter" style={{ color: fColor }}>
+              <div className="text-[40px] sm:text-[48px] font-bold leading-none tracking-tighter" style={{ color: fColor }}>
                 {fScore}
                 <span className="text-headline-md">%</span>
               </div>

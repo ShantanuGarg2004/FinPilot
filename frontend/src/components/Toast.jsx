@@ -29,11 +29,11 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={showToast}>
       {children}
-      <div className="fixed bottom-gutter right-gutter z-[9999] flex flex-col gap-2">
+      <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 right-4 sm:left-auto sm:right-gutter z-[9999] flex flex-col gap-2 sm:max-w-[360px]">
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`animate-slideInRight max-w-[360px] rounded-lg px-md py-2.5 text-sm border shadow-panel ${STYLES[t.type]}`}
+            className={`animate-slideInRight w-full rounded-lg px-md py-2.5 text-sm border shadow-panel break-words ${STYLES[t.type]}`}
           >
             {t.message}
           </div>

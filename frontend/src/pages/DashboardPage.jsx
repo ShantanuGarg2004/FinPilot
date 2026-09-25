@@ -47,7 +47,7 @@ export default function DashboardPage({ userId, user, onNavigate }) {
   const blockedLoad = !report && loadError && loadError.code !== "not_found" && loadError.status !== 404;
 
   return (
-    <div className="grid grid-cols-12 gap-xl">
+    <div className="grid grid-cols-12 gap-lg lg:gap-xl">
       <div className="col-span-12 lg:col-span-8 space-y-xl">
         <LoadErrorBanner error={loadError} onRetry={retryLoad} resource="health score" />
         {report && report.pdf_ready === false && (

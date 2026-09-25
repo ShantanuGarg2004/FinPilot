@@ -35,14 +35,14 @@ export default function AdvisoryPage({ userId, userGoal }) {
 
   return (
     <div className="max-w-[840px] mx-auto">
-      <div className="flex justify-between items-end mb-xl md:mb-2xl border-b border-outline pb-md gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-end mb-lg sm:mb-2xl border-b border-outline pb-md">
         <div className="min-w-0">
-          <h2 className="font-headline-lg text-headline-lg text-on-surface">AI Advisory Report</h2>
+          <h2 className="font-headline-lg text-[22px] leading-7 sm:text-headline-lg text-on-surface">AI Advisory Report</h2>
           <p className="text-[12px] text-on-surface-variant mt-0.5 truncate">
             {userGoal || `Profile #${userId}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           {report && (
             <Button variant="subtle" size="sm" icon="download" onClick={download}>
               PDF

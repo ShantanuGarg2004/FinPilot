@@ -1,7 +1,17 @@
+import { useEffect } from "react";
 import Icon from "../Icon";
 import { NAV_ITEMS } from "./nav";
 
 export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose, accountEmail, onSignOut }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [open]);
+
   return (
     <>
       <div
@@ -25,7 +35,7 @@ export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose
               Wealth Manager
             </p>
           </div>
-          <button onClick={onClose} className="lg:hidden p-1 text-on-surface-variant hover:text-primary">
+          <button onClick={onClose} aria-label="Close menu" className="lg:hidden min-h-11 min-w-11 inline-flex items-center justify-center text-on-surface-variant hover:text-primary">
             <Icon name="close" size={18} />
           </button>
         </div>
@@ -41,7 +51,7 @@ export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose
                 disabled={disabled}
                 title={disabled ? "Select or create a profile first" : undefined}
                 className={[
-                  "w-full flex items-center gap-sm pl-3 py-2.5 rounded-lg transition-colors duration-150 text-left font-medium",
+                  "w-full flex items-center gap-sm pl-3 py-3 rounded-lg transition-colors duration-150 text-left font-medium",
                   active
                     ? "text-primary bg-surface-container border-l-2 border-primary"
                     : disabled
@@ -61,7 +71,7 @@ export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose
           {accountEmail && (
             <p className="text-[12px] text-on-surface-variant truncate" title={accountEmail}>{accountEmail}</p>
           )}
-          <button type="button" onClick={onSignOut} className="w-full py-2 text-[13px] text-on-surface-variant hover:text-on-surface text-left">
+          <button type="button" onClick={onSignOut} className="w-full min-h-11 py-2 text-[13px] text-on-surface-variant hover:text-on-surface text-left">
             Sign out
           </button>
           <button className="w-full py-2.5 bg-premium text-background text-[13px] font-semibold rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-1.5">
