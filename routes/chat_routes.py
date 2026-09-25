@@ -1,5 +1,5 @@
 import logging
-import sqlite3
+from database.db import DatabaseError
 
 from flask import Blueprint, request, jsonify
 from marshmallow import ValidationError
@@ -80,7 +80,7 @@ def chat():
 
     try:
         save_chat_turn(user_id, user_query, response_text)
-    except sqlite3.Error:
+    except DatabaseError:
         logger.exception("chat: failed to persist turn for user #%d", user_id)
         return jsonify({
             "error": "The reply was generated but could not be saved",
@@ -146,7 +146,7 @@ def clear_chat_history_route(user_id: int):
     try:
         clear_chat_history(user_id)
         logger.info("clear_chat_history: history cleared for user #%d", user_id)
-    except sqlite3.Error:
+    except DatabaseError:
         logger.exception("clear_chat_history: DB delete failed for user #%d", user_id)
         return jsonify({
             "error": "Could not clear history — database error",

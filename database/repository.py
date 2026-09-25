@@ -56,6 +56,7 @@ def insert_user(data: dict) -> int:
             INSERT INTO users
                 (age, income, expenses, savings, risk_appetite, financial_goals, account_id)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (
                 data["age"],
@@ -215,6 +216,7 @@ def insert_account(email: str, password: str) -> dict:
             """
             INSERT INTO accounts (email, password_hash, auth_provider)
             VALUES (?, ?, 'local')
+            RETURNING id
             """,
             (email.strip().lower(), generate_password_hash(password)),
         )
@@ -227,7 +229,17 @@ def attach_orphan_profiles(conn) -> None:
     """Point every unowned profile at the bootstrap account. Reports and chats stay put."""
     from config import Config
 
-    cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    cols = {
+        row["name"]
+        for row in conn.execute(
+            """
+            SELECT column_name AS name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = ?
+            """,
+            ("users",),
+        )
+    }
     if "account_id" not in cols:
         return
     orphans = conn.execute("SELECT COUNT(*) AS n FROM users WHERE account_id IS NULL").fetchone()["n"]
@@ -248,6 +260,7 @@ def attach_orphan_profiles(conn) -> None:
             """
             INSERT INTO accounts (email, password_hash, auth_provider)
             VALUES (?, ?, 'local')
+            RETURNING id
             """,
             (email, generate_password_hash(password)),
         )

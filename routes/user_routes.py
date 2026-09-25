@@ -1,5 +1,5 @@
 import logging
-import sqlite3
+from database.db import DatabaseError
 
 from flask import Blueprint, request, jsonify
 from marshmallow import ValidationError
@@ -92,7 +92,7 @@ def create_profile():
     # ── Persist ───────────────────────────────────────────────────────────
     try:
         user_id = insert_user(data)
-    except sqlite3.Error:
+    except DatabaseError:
         logger.exception("create_profile: DB insert failed")
         return jsonify({
             "error": "Database error — profile could not be saved",
@@ -129,7 +129,7 @@ def delete_profile(user_id: int):
     """
     try:
         deleted = delete_user(user_id)
-    except sqlite3.Error:
+    except DatabaseError:
         logger.exception("delete_profile: DB delete failed for user #%d", user_id)
         return jsonify({
             "error": "Deletion failed — database error",

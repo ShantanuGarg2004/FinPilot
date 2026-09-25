@@ -1,7 +1,7 @@
 import io
 import logging
 import os
-import sqlite3
+from database.db import DatabaseError
 import tempfile
 
 from flask import Blueprint, jsonify, send_file, request
@@ -159,7 +159,7 @@ def generate_report():
     try:
         _save_report_to_db(user_id, health_data, ai_report, pdf_bytes=None)
         logger.info("generate_report: advisory persisted (pre-PDF) for user #%d", user_id)
-    except sqlite3.Error:
+    except DatabaseError:
         logger.exception("generate_report: DB save failed for user #%d", user_id)
         return jsonify({
             "error": "Report generated but could not be saved to DB",
@@ -175,7 +175,7 @@ def generate_report():
             _update_pdf_blob(user_id, pdf_result)
             pdf_ready = True
             logger.info("generate_report: PDF saved for user #%d", user_id)
-        except (sqlite3.Error, OSError):
+        except (DatabaseError, OSError):
             logger.exception("generate_report: PDF file save failed for user #%d", user_id)
             pdf_error = "PDF generated but could not be saved"
     else:
@@ -257,7 +257,7 @@ def download_report(user_id: int):
 
     try:
         _update_pdf_blob(user_id, pdf_result)
-    except (sqlite3.Error, OSError):
+    except (DatabaseError, OSError):
         logger.exception("download_report: could not cache regenerated PDF for user #%d", user_id)
 
     return send_file(

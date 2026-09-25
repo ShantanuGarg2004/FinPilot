@@ -164,6 +164,18 @@ def test_chat_with_advisor_includes_more_than_five_history_turns(recorder):
     assert "turn-0" in user_msg  # within last 20 and char budget
 
 
+def test_groq_stub_does_not_call_the_client(monkeypatch):
+    monkeypatch.setattr(ai_service.Config, "GROQ_STUB", True)
+
+    def _boom(**kwargs):
+        raise AssertionError("Groq client should not be called")
+
+    monkeypatch.setattr(ai_service.client.chat.completions, "create", _boom)
+    ok, text = ai_service.ask_gpt("hello")
+    assert ok is True
+    assert "Groq was not called" in text
+
+
 def test_report_and_chat_use_distinct_models(recorder):
     # Confirms the per-service wiring actually differentiates the two models.
     assert ai_service.Config.GROQ_REPORT_MODEL != ai_service.Config.GROQ_CHAT_MODEL

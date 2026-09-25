@@ -4,13 +4,12 @@ from config import Config, recommended_worker_count
 from services import ai_service
 
 
-def test_sqlite_connection_sets_busy_timeout(tmp_path, monkeypatch):
+def test_postgres_connection_answers(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "DB_NAME", str(tmp_path / "busy.db"))
-    monkeypatch.setattr(Config, "SQLITE_BUSY_TIMEOUT_MS", 4321)
     conn = db_mod.get_connection()
-    timeout_ms = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    row = conn.execute("SELECT 1 AS ok").fetchone()
     conn.close()
-    assert timeout_ms == 4321
+    assert row["ok"] == 1
 
 
 def test_recommended_workers_adds_headroom():
@@ -59,4 +58,4 @@ def test_health_reports_capacity_settings(tmp_path, monkeypatch):
     body = res.get_json()
     assert body["worker_timeout_seconds"] > body["groq_timeout_seconds"]
     assert body["recommended_workers"] >= 2
-    assert body["sqlite_busy_timeout_ms"] > 0
+    assert body["database_backend"] == "postgresql"

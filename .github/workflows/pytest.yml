@@ -8,6 +8,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: finpilot
+          POSTGRES_PASSWORD: finpilot_dev_password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finpilot -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,4 +30,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Run tests
+        env:
+          APP_DATABASE_URL: postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot_test
         run: python -m pytest tests/ -q --tb=line --deselect tests/test_wave1_integration.py::test_sql_backend_ping_when_configured

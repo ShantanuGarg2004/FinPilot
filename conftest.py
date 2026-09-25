@@ -27,6 +27,10 @@ os.environ.setdefault("RATELIMIT_STORAGE_URI", "memory://")
 os.environ.setdefault("RATELIMIT_ENABLED", "true")
 # Tests use in-memory Wave 1 store by default (no Postgres required).
 os.environ.setdefault("RATELIMIT_STORAGE_BACKEND", "memory")
+os.environ.setdefault(
+    "APP_DATABASE_URL",
+    "postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot_test",
+)
 os.environ.setdefault("FLASK_ENV", "production")
 os.environ.setdefault("BOOTSTRAP_ACCOUNT_EMAIL", "bootstrap@finpilot.local")
 os.environ.setdefault("BOOTSTRAP_ACCOUNT_PASSWORD", "bootstrap-test-password")

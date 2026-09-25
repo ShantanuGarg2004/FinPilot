@@ -33,6 +33,8 @@ class Config:
     # Per-service model selection (overridable via .env).
     GROQ_REPORT_MODEL = os.getenv("GROQ_REPORT_MODEL", "openai/gpt-oss-120b")
     GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b")
+    # Q6 load test. When true, ask_gpt returns fixed text and does not call Groq.
+    GROQ_STUB = _env_bool("GROQ_STUB", False)
 
     # Wave 0: split token budgets (report needs full 6-section output).
     GROQ_REPORT_MAX_TOKENS = _env_int("GROQ_REPORT_MAX_TOKENS", 4096)
@@ -56,6 +58,11 @@ class Config:
     RATELIMIT_ENABLED = _env_bool("RATELIMIT_ENABLED", True)
     RATELIMIT_STORAGE_BACKEND = (os.getenv("RATELIMIT_STORAGE_BACKEND") or "memory").lower()
     RATELIMIT_DATABASE_URL = os.getenv("RATELIMIT_DATABASE_URL")
+    # Application data. Separate database from the rate-limit store.
+    APP_DATABASE_URL = os.getenv(
+        "APP_DATABASE_URL",
+        "postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot",
+    )
     FLASK_ENV = (os.getenv("FLASK_ENV") or os.getenv("FINPILOT_ENV") or "production").lower()
 
     # Quota strings. PolicyRegistry parses these with the `limits` package.
@@ -92,6 +99,10 @@ class Config:
             raise EnvironmentError(
                 f"Missing required environment variables: {', '.join(missing)}\n"
                 "Add them to your .env file."
+            )
+        if not cls.APP_DATABASE_URL:
+            raise EnvironmentError(
+                "APP_DATABASE_URL is required (PostgreSQL database for profiles, reports, and chat)."
             )
         if cls.RATELIMIT_ENABLED and cls.RATELIMIT_STORAGE_BACKEND == "sql":
             if not cls.RATELIMIT_DATABASE_URL:

@@ -1,4 +1,5 @@
 import logging
+import time
 
 from groq import APIStatusError, APITimeoutError, Groq, RateLimitError
 from config import Config
@@ -91,6 +92,18 @@ def ask_gpt(prompt, model=None, max_tokens=None):
     """
     selected_model = model or Config.GROQ_CHAT_MODEL
     token_budget = max_tokens if max_tokens is not None else Config.GROQ_CHAT_MAX_TOKENS
+
+    if Config.GROQ_STUB:
+        delay_ms = 0
+        try:
+            from flask import has_request_context, request
+            if has_request_context():
+                delay_ms = int(request.headers.get("X-FinPilot-Stub-Delay-Ms", "0") or 0)
+        except (TypeError, ValueError):
+            delay_ms = 0
+        if delay_ms > 0:
+            time.sleep(min(delay_ms, 5000) / 1000)
+        return True, "Stubbed advisory. Groq was not called."
 
     try:
         response = client.chat.completions.create(

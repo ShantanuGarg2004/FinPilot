@@ -1,7 +1,5 @@
 """Q3: one SQLite connection per request, PDFs on disk, score and goal bands."""
 import json
-import sqlite3
-
 import config
 import database.db as db_mod
 from app import create_app
@@ -139,9 +137,10 @@ def test_profile_save_failure_is_structured(tmp_path, monkeypatch):
     app.config["TESTING"] = True
 
     import routes.user_routes as ur
+    from database.db import DatabaseError
 
     def _boom(_data):
-        raise sqlite3.OperationalError("database is locked")
+        raise DatabaseError("database is locked")
 
     monkeypatch.setattr(ur, "insert_user", _boom)
     client = app.test_client()

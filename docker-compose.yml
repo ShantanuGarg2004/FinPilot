@@ -1,5 +1,6 @@
-# Local PostgreSQL for FinPilot rate-limit store (Wave 1).
-# App data remains on SQLite until a later wave.
+# Local PostgreSQL. The limiter uses finpilot_ratelimit.
+# Application profiles, reports, and chat use the separate finpilot database,
+# created on startup when it is missing.
 services:
   finpilot-postgres:
     image: postgres:16-alpine

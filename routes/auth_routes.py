@@ -1,5 +1,5 @@
 import logging
-import sqlite3
+from database.db import IntegrityConflict
 
 from flask import Blueprint, g, jsonify, request
 from marshmallow import ValidationError
@@ -72,7 +72,7 @@ def signup():
         }), 409
     try:
         account = insert_account(data["email"], data["password"])
-    except sqlite3.IntegrityError:
+    except IntegrityConflict:
         return jsonify({
             "error": "An account with this email already exists",
             "code": "account_exists",

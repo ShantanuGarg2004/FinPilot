@@ -51,7 +51,7 @@ def create_app():
 
     limiter.init_app(app)
 
-    # Init app DB (SQLite profiles/reports/chat)
+    # Application data lives in PostgreSQL (separate database from the limiter).
     create_tables()
     app.teardown_appcontext(close_request_connection)
 
@@ -204,6 +204,7 @@ def create_app():
             "groq_timeout_seconds": Config.GROQ_TIMEOUT_SECONDS,
             "worker_timeout_seconds": Config.WORKER_TIMEOUT_SECONDS,
             "recommended_workers": recommended_worker_count(),
+            "database_backend": "postgresql",
             "sqlite_busy_timeout_ms": Config.SQLITE_BUSY_TIMEOUT_MS,
         }), (200 if status == "ok" else 503)
 

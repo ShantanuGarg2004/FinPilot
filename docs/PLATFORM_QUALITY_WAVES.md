@@ -206,6 +206,8 @@ After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_
 | Q6.5 | If workers saturate on Groq while the limiter still allows calls, add a report job queue and poll `GET /report`. Chat can stay synchronous until the same evidence appears. | Scale |
 | Q6.6 | Publish the numbers in `docs/testing_reports/`. Residual risk stays written down if you keep SQLite. | Ops |
 
+**Completed:** 2026-09-25. Measured on Waitress (6 threads) with `GROQ_STUB=true`. Cheap reads stayed under 200 ms. No SQLite lock errors. App data then moved to PostgreSQL database `finpilot` (separate from the limiter). No report job queue. Report: `docs/testing_reports/Q6_IMPLEMENTATION_AND_TEST_REPORT.md`.
+
 ---
 
 ## 4. Prerequisites
