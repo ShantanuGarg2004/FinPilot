@@ -1,7 +1,7 @@
 import Icon from "../Icon";
 import { NAV_ITEMS } from "./nav";
 
-export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose }) {
+export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose, accountEmail, onSignOut }) {
   return (
     <>
       <div
@@ -57,7 +57,13 @@ export default function Sidebar({ activePage, onNavigate, hasUser, open, onClose
           })}
         </nav>
 
-        <div className="px-md mt-auto pt-md">
+        <div className="px-md mt-auto pt-md space-y-2">
+          {accountEmail && (
+            <p className="text-[12px] text-on-surface-variant truncate" title={accountEmail}>{accountEmail}</p>
+          )}
+          <button type="button" onClick={onSignOut} className="w-full py-2 text-[13px] text-on-surface-variant hover:text-on-surface text-left">
+            Sign out
+          </button>
           <button className="w-full py-2.5 bg-premium text-background text-[13px] font-semibold rounded-lg hover:opacity-90 transition-all flex items-center justify-center gap-1.5">
             <Icon name="star" size={16} fill />
             Upgrade to Elite

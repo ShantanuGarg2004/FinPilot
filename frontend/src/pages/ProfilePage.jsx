@@ -7,6 +7,9 @@ export default function ProfilePage({ onCreated, activeUserId, onSelectUser, pro
     <div className="h-[calc(100vh-56px)] flex flex-col lg:flex-row">
       <section className="flex-1 min-w-0 overflow-y-auto">
         <div className="h-full max-w-[760px] mx-auto px-gutter py-lg lg:py-xl">
+          {!profiles.loading && profiles.users.length === 0 && (
+            <p className="text-[13px] text-on-surface-variant mb-4">You are signed in and have no profiles yet.</p>
+          )}
           <ProfileForm onCreated={onCreated} />
         </div>
       </section>

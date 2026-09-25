@@ -28,6 +28,8 @@ os.environ.setdefault("RATELIMIT_ENABLED", "true")
 # Tests use in-memory Wave 1 store by default (no Postgres required).
 os.environ.setdefault("RATELIMIT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("FLASK_ENV", "production")
+os.environ.setdefault("BOOTSTRAP_ACCOUNT_EMAIL", "bootstrap@finpilot.local")
+os.environ.setdefault("BOOTSTRAP_ACCOUNT_PASSWORD", "bootstrap-test-password")
 os.environ.setdefault(
     "PDF_STORAGE_DIR",
     os.path.join(tempfile.gettempdir(), "finpilot-pytest-pdfs"),

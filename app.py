@@ -9,6 +9,7 @@ from routes.user_routes import user_bp
 from routes.report_routes import report_bp
 from routes.chat_routes import chat_bp
 from routes.goal_routes import goal_bp
+from routes.auth_routes import auth_bp
 from database.models import create_tables
 from database.db import close_request_connection
 from config import Config, recommended_worker_count
@@ -28,7 +29,11 @@ def create_app():
     Config.validate()
 
     app = Flask(__name__)
-    CORS(app, resources={r"/api/*": {"origins": Config.CORS_ORIGINS}})
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": Config.CORS_ORIGINS}},
+        supports_credentials=True,
+    )
 
     # Wave 1: custom gateway owns limits when backend is sql|memory.
     # Keep Flask-Limiter imported for route decorators but disable it to avoid double-counting.
@@ -80,6 +85,13 @@ def create_app():
         if request.path == "/" or request.path.rstrip("/") == "/api/health":
             g.actor = Actor(kind="anonymous")
             return
+        if request.method == "POST" and request.path.rstrip("/") in (
+            "/api/auth/login",
+            "/api/auth/signup",
+            "/api/auth/logout",
+        ):
+            g.actor = Actor(kind="anonymous")
+            return
         if is_public_docs(request.path):
             if not _local_env():
                 return jsonify({"error": "Not found", "code": "not_found"}), 404
@@ -90,7 +102,12 @@ def create_app():
             return
 
         if _bind_actor() is None:
-            return _unauthorized()
+            if getattr(g, "auth_error", None) == "unauthorized":
+                return _unauthorized()
+            return jsonify({
+                "error": "Your session ended. Sign in again.",
+                "code": "session_expired",
+            }), 401
 
     @app.before_request
     def enforce_rate_limit():
@@ -163,7 +180,18 @@ def create_app():
 
     @app.route("/api/health")
     def health():
-        """Liveness probe — exempt from API-key auth and rate limits."""
+        """
+        Liveness probe. No API key and no session.
+        ---
+        tags:
+          - Health
+        security: []
+        responses:
+          200:
+            description: Process is up
+          503:
+            description: Rate-limit store is down
+        """
         gw = get_gateway()
         store_ok = gw.ping() if gw else None
         status = "ok" if store_ok is not False else "degraded"
@@ -179,6 +207,7 @@ def create_app():
             "sqlite_busy_timeout_ms": Config.SQLITE_BUSY_TIMEOUT_MS,
         }), (200 if status == "ok" else 503)
 
+    app.register_blueprint(auth_bp, url_prefix="/api")
     app.register_blueprint(user_bp, url_prefix="/api")
     app.register_blueprint(report_bp, url_prefix="/api")
     app.register_blueprint(chat_bp, url_prefix="/api")

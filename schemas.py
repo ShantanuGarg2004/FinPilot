@@ -148,9 +148,42 @@ class GoalPlanSchema(Schema):
             raise ValidationError("goal_name must not be blank.")
 
 
+# ── Account login ──────────────────────────────────────────────────────────
+
+class SignupSchema(Schema):
+    email = fields.Email(required=True, error_messages={"required": "email is required", "invalid": "email must look like an email"})
+    password = fields.String(
+        required=True,
+        validate=validate.Length(min=12, error="password must be at least 12 characters"),
+    )
+    confirm_password = fields.String(required=True)
+
+    @pre_load
+    def normalize_email(self, data, **kwargs):
+        if isinstance(data.get("email"), str):
+            data["email"] = data["email"].strip().lower()
+        return data
+
+class LoginSchema(Schema):
+    email = fields.Email(required=True)
+    password = fields.String(required=True)
+
+    @pre_load
+    def normalize_email(self, data, **kwargs):
+        if isinstance(data.get("email"), str):
+            data["email"] = data["email"].strip().lower()
+        return data
+
+
+def passwords_match(data: dict) -> bool:
+    return data.get("password") == data.get("confirm_password")
+
+
 # ── Singleton instances (import and reuse these) ───────────────────────────
 
 profile_schema         = ProfileSchema()
 generate_report_schema = GenerateReportSchema()
 chat_schema            = ChatSchema()
 goal_plan_schema       = GoalPlanSchema()
+signup_schema          = SignupSchema()
+login_schema           = LoginSchema()

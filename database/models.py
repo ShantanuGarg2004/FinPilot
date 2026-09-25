@@ -13,6 +13,17 @@ def create_tables():
     conn   = get_connection()
     cursor = conn.cursor()
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            email           TEXT NOT NULL UNIQUE,
+            password_hash   TEXT,
+            auth_provider   TEXT NOT NULL DEFAULT 'local',
+            session_version INTEGER NOT NULL DEFAULT 1,
+            created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     # ── users ──────────────────────────────────────────────────────────────
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -42,6 +53,7 @@ def create_tables():
     """)
     _ensure_pdf_blob_nullable(cursor)
     _ensure_pdf_path(cursor)
+    _ensure_account_id(cursor)
 
     # ── chat_history ───────────────────────────────────────────────────────
     cursor.execute("""
@@ -69,7 +81,10 @@ def create_tables():
         ON chat_history(user_id, id DESC)
     """)
 
+    from database.repository import attach_orphan_profiles
+
     conn.commit()
+    attach_orphan_profiles(conn)
     export_legacy_blobs(conn)
     conn.commit()
     conn.close()
@@ -82,6 +97,14 @@ def _pdf_blob_notnull(cursor) -> bool:
         if row["name"] == "pdf_blob":
             return bool(row["notnull"])
     return False
+
+
+def _ensure_account_id(cursor) -> None:
+    cursor.execute("PRAGMA table_info(users)")
+    names = {row["name"] for row in cursor.fetchall()}
+    if "account_id" not in names:
+        logger.info("Migration: adding users.account_id")
+        cursor.execute("ALTER TABLE users ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
 
 
 def _ensure_pdf_path(cursor) -> None:

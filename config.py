@@ -75,6 +75,9 @@ class Config:
     RATELIMIT_GOAL = os.getenv("RATELIMIT_GOAL", "20 per minute")
     RATELIMIT_GOAL_USER = os.getenv("RATELIMIT_GOAL_USER", "60 per hour")
     RATELIMIT_DELETE_USER = os.getenv("RATELIMIT_DELETE_USER", "30 per hour")
+    RATELIMIT_AUTH = os.getenv("RATELIMIT_AUTH", "20 per minute")
+    BOOTSTRAP_ACCOUNT_EMAIL = os.getenv("BOOTSTRAP_ACCOUNT_EMAIL")
+    BOOTSTRAP_ACCOUNT_PASSWORD = os.getenv("BOOTSTRAP_ACCOUNT_PASSWORD")
 
     # Q4: browser origins. Unset means local Vite only. Empty is rejected in production.
     CORS_ORIGINS = _split_csv(

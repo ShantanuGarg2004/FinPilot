@@ -3,7 +3,7 @@ import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { PAGE_TITLES } from "./nav";
 
-export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, onNewProfile, fullBleed = false, children }) {
+export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, onNewProfile, fullBleed = false, accountEmail, onSignOut, children }) {
   const [open, setOpen] = useState(false);
 
   const navigate = useCallback(
@@ -16,7 +16,7 @@ export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, 
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
-      <Sidebar activePage={activePage} onNavigate={navigate} hasUser={hasUser} open={open} onClose={() => setOpen(false)} />
+      <Sidebar activePage={activePage} onNavigate={navigate} hasUser={hasUser} open={open} onClose={() => setOpen(false)} accountEmail={accountEmail} onSignOut={onSignOut} />
       <TopBar
         title={PAGE_TITLES[activePage]}
         activeGoal={activeGoal}

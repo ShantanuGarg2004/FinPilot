@@ -60,8 +60,14 @@ export function toApiError(input, res = null, data = null) {
   const retryAfter = parseRetryAfter(res, data);
   let message = messageFromBody(data, status);
 
-  if (code === "unauthorized") {
+  if (code === "session_expired") {
+    message = "Your session ended. Sign in again.";
+  } else if (code === "unauthorized") {
     message = "Unauthorized — check your API key configuration.";
+  } else if (code === "invalid_credentials") {
+    message = "Email or password is incorrect.";
+  } else if (code === "account_exists") {
+    message = "An account with this email already exists";
   } else if (code === "rate_limit_exceeded") {
     message = retryAfter
       ? `Too many requests. Try again in ${retryAfter}s.`

@@ -1,11 +1,9 @@
 import { ApiError, toApiError } from "../lib/apiErrors";
 
 /* Central API configuration shared by every data hook and page. */
-export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-export const API_KEY = import.meta.env.VITE_API_KEY || "your-api-key";
+export const API_BASE = import.meta.env.VITE_API_URL || "/api";
 export const headers = {
   "Content-Type": "application/json",
-  "X-API-Key": API_KEY,
 };
 
 /* Small fetch helper that normalises the backend's error shape into ApiError. */
@@ -14,6 +12,7 @@ export async function apiFetch(path, options = {}) {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      credentials: "include",
       headers: { ...headers, ...(options.headers || {}) },
     });
   } catch (err) {
@@ -43,7 +42,11 @@ export async function apiFetch(path, options = {}) {
   }
 
   if (!res.ok) {
-    throw toApiError(new Error("request failed"), res, data);
+    const error = toApiError(new Error("request failed"), res, data);
+    if (error.code === "session_expired") {
+      window.dispatchEvent(new Event("finpilot:session-expired"));
+    }
+    throw error;
   }
   return data;
 }
@@ -53,6 +56,7 @@ export async function apiFetchRaw(path, options = {}) {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      credentials: "include",
       headers: { ...headers, ...(options.headers || {}) },
     });
   } catch (err) {

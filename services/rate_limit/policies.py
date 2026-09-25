@@ -53,6 +53,7 @@ class PolicyRegistry:
         self.llm_chat_user = _rule("llm_chat", Config.RATELIMIT_LLM_CHAT_USER, per_user=True)
         self.llm_report = _rule("llm_report", Config.RATELIMIT_LLM_REPORT)
         self.llm_report_user = _rule("llm_report", Config.RATELIMIT_LLM_REPORT_USER, per_user=True)
+        self.auth_attempt = _rule("auth_attempt", Config.RATELIMIT_AUTH)
 
     def rules_for(self, method: str, path: str) -> list[LimitRule] | None:
         """Return rules to apply, [] for exempt, None if no policy (allow)."""
@@ -63,6 +64,13 @@ class PolicyRegistry:
             return []
         if path.rstrip("/") in ("/api/health", "/health"):
             return []
+
+        if path.rstrip("/") in ("/api/auth/login", "/api/auth/signup") and method == "POST":
+            return [self.auth_attempt]
+        if path.rstrip("/") == "/api/auth/logout" and method == "POST":
+            return []
+        if path.rstrip("/") == "/api/auth/me" and method == "GET":
+            return [self.read_light]
 
         if method == "GET" and path.rstrip("/") == "/api/users":
             return [self.read_light]

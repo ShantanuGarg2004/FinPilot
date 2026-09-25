@@ -1,8 +1,21 @@
 """Profile, report, and chat SQL. Routes call these functions."""
 import json
 
+from flask import g, has_request_context
+from werkzeug.security import generate_password_hash
+
 from database.db import connection
 from database.pdf_files import remove_pdf, resolve, write_pdf
+
+
+def _account_scope():
+    """Browser actors see only their profiles. The deployment key sees every row."""
+    if not has_request_context():
+        return None
+    actor = getattr(g, "actor", None)
+    if actor is not None and actor.kind == "user":
+        return int(actor.credential)
+    return None
 
 
 def get_latest_user():
@@ -12,14 +25,27 @@ def get_latest_user():
 
 
 def get_user_by_id(user_id: int):
+    account_id = _account_scope()
+    sql = "SELECT * FROM users WHERE id = ?"
+    args = [user_id]
+    if account_id is not None:
+        sql += " AND account_id = ?"
+        args.append(account_id)
     with connection() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute(sql, args).fetchone()
     return dict(row) if row else None
 
 
 def get_all_users():
+    account_id = _account_scope()
+    sql = "SELECT * FROM users"
+    args = []
+    if account_id is not None:
+        sql += " WHERE account_id = ?"
+        args.append(account_id)
+    sql += " ORDER BY id ASC"
     with connection() as conn:
-        rows = conn.execute("SELECT * FROM users ORDER BY id ASC").fetchall()
+        rows = conn.execute(sql, args).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -28,8 +54,8 @@ def insert_user(data: dict) -> int:
         cursor = conn.execute(
             """
             INSERT INTO users
-                (age, income, expenses, savings, risk_appetite, financial_goals)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (age, income, expenses, savings, risk_appetite, financial_goals, account_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["age"],
@@ -38,6 +64,7 @@ def insert_user(data: dict) -> int:
                 data["savings"],
                 data["risk_appetite"],
                 data["financial_goals"],
+                _account_scope(),
             ),
         )
         conn.commit()
@@ -45,14 +72,17 @@ def insert_user(data: dict) -> int:
 
 
 def delete_user(user_id: int) -> bool:
+    account_id = _account_scope()
+    sql = "SELECT users.id AS id, reports.pdf_path AS pdf_path FROM users LEFT JOIN reports ON reports.user_id = users.id WHERE users.id = ?"
+    args = [user_id]
+    if account_id is not None:
+        sql += " AND users.account_id = ?"
+        args.append(account_id)
     with connection() as conn:
-        found = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        found = conn.execute(sql, args).fetchone()
         if not found:
             return False
-        report = conn.execute(
-            "SELECT pdf_path FROM reports WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()
+        report = found
         conn.execute("DELETE FROM reports WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
@@ -162,3 +192,67 @@ def clear_chat_history(user_id: int) -> None:
     with connection() as conn:
         conn.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
         conn.commit()
+
+
+def get_account_by_id(account_id: int):
+    with connection() as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_account_by_email(email: str):
+    with connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM accounts WHERE email = ?",
+            (email.strip().lower(),),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def insert_account(email: str, password: str) -> dict:
+    with connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO accounts (email, password_hash, auth_provider)
+            VALUES (?, ?, 'local')
+            """,
+            (email.strip().lower(), generate_password_hash(password)),
+        )
+        conn.commit()
+        account_id = cursor.lastrowid
+    return get_account_by_id(account_id)
+
+
+def attach_orphan_profiles(conn) -> None:
+    """Point every unowned profile at the bootstrap account. Reports and chats stay put."""
+    from config import Config
+
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "account_id" not in cols:
+        return
+    orphans = conn.execute("SELECT COUNT(*) AS n FROM users WHERE account_id IS NULL").fetchone()["n"]
+    if not orphans:
+        return
+    email = (Config.BOOTSTRAP_ACCOUNT_EMAIL or "").strip().lower()
+    password = Config.BOOTSTRAP_ACCOUNT_PASSWORD or ""
+    if not email or not password:
+        raise EnvironmentError(
+            "Existing profiles have no account. Set BOOTSTRAP_ACCOUNT_EMAIL and "
+            "BOOTSTRAP_ACCOUNT_PASSWORD before starting."
+        )
+    existing = conn.execute("SELECT id FROM accounts WHERE email = ?", (email,)).fetchone()
+    if existing:
+        account_id = existing["id"]
+    else:
+        cursor = conn.execute(
+            """
+            INSERT INTO accounts (email, password_hash, auth_provider)
+            VALUES (?, ?, 'local')
+            """,
+            (email, generate_password_hash(password)),
+        )
+        account_id = cursor.lastrowid
+    conn.execute(
+        "UPDATE users SET account_id = ? WHERE account_id IS NULL",
+        (account_id,),
+    )

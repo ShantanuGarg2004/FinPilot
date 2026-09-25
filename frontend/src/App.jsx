@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { apiFetch } from "./config/api";
+import LoginPage from "./pages/LoginPage";
 import { ToastProvider } from "./components/Toast";
 import { useToast } from "./components/toast-context";
 import AppShell from "./components/layout/AppShell";
@@ -33,7 +35,7 @@ function writeStoredUserId(id) {
   }
 }
 
-function FinPilotApp() {
+function FinPilotApp({ account, onSignOut }) {
   const showToast = useToast();
   const profiles = useProfiles(showToast);
   const { users, remove } = profiles;
@@ -104,6 +106,8 @@ function FinPilotApp() {
       activeGoal={activeGoal}
       onNewProfile={newProfile}
       fullBleed={FULL_BLEED.has(page)}
+      accountEmail={account.email}
+      onSignOut={onSignOut}
     >
       {page === "profile" && (
         <ProfilePage
@@ -130,9 +134,50 @@ function FinPilotApp() {
 }
 
 export default function App() {
+  const [account, setAccount] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch("/auth/me")
+      .then((me) => {
+        if (!cancelled) setAccount(me);
+      })
+      .catch(() => {
+        if (!cancelled) setAccount(null);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
+      });
+    const expired = () => setAccount(null);
+    window.addEventListener("finpilot:session-expired", expired);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("finpilot:session-expired", expired);
+    };
+  }, []);
+
+  const signOut = useCallback(async () => {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      /* cookie clear is enough */
+    }
+    try {
+      sessionStorage.removeItem("finpilot.activeUserId");
+    } catch {
+      /* private mode */
+    }
+    setAccount(null);
+  }, []);
+
   return (
     <ToastProvider>
-      <FinPilotApp />
+      {!ready ? null : account ? (
+        <FinPilotApp account={account} onSignOut={signOut} />
+      ) : (
+        <LoginPage onSignedIn={setAccount} />
+      )}
     </ToastProvider>
   );
 }

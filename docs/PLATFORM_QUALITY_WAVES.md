@@ -191,6 +191,8 @@ After each wave’s test suite, add `docs/testing_reports/<WAVE>_IMPLEMENTATION_
 
 **Depends on Q4.** Do not add a second `before_request` that only checks a user header beside the raw key compare.
 
+**Completed:** 2026-09-25. Email and a Werkzeug password hash live on `accounts`. The browser session is an HttpOnly cookie signed with itsdangerous. Profile queries are limited to that account. Existing rows attach to the bootstrap account. `X-API-Key` remains for scripts and Swagger. Report: `docs/testing_reports/Q5_IMPLEMENTATION_AND_TEST_REPORT.md`.
+
 ### Q6 — Prove 100 concurrent users
 
 **Goal:** Measure, then change the runtime or the app database only if the measurement fails.

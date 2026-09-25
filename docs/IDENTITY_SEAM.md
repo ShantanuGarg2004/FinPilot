@@ -1,6 +1,8 @@
 # Identity seam
 
-**Status:** Q4. The caller is a deployment API key. This is not per-person authentication.
+**Status:** Q5 is implemented. A browser session is an account. `X-API-Key` is still the deployment credential for scripts and Swagger.
+
+Design: `docs/AUTH_ARCHITECTURE.md` and `docs/USER_EXPERIENCE.md`.
 
 ## Actor
 
