@@ -22,6 +22,7 @@ def test_health_is_ok_when_the_database_answers(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch, "health.db")
     res = app.test_client().get("/api/health")
     assert res.status_code == 200
+    assert res.headers["Cache-Control"] == "no-store"
     body = res.get_json()
     assert body["status"] == "ok"
     assert body["database_ok"] is True
@@ -40,6 +41,7 @@ def test_health_is_degraded_when_the_database_ping_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(app_mod, "ping_database", lambda: False)
     res = app.test_client().get("/api/health")
     assert res.status_code == 503
+    assert res.headers["Cache-Control"] == "no-store"
     body = res.get_json()
     assert body["status"] == "degraded"
     assert body["database_ok"] is False

@@ -12,6 +12,7 @@ export async function apiFetch(path, options = {}) {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      cache: options.cache || "no-store",
       credentials: "include",
       headers: { ...headers, ...(options.headers || {}) },
     });
@@ -56,6 +57,7 @@ export async function apiFetchRaw(path, options = {}) {
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      cache: options.cache || "no-store",
       credentials: "include",
       headers: { ...headers, ...(options.headers || {}) },
     });

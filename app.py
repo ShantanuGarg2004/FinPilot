@@ -274,6 +274,13 @@ def create_app():
             "ratelimit_store_ok": store_ok,
         }), (200 if status == "ok" else 503)
 
+    @app.after_request
+    def private_api_responses(response):
+        """Authenticated JSON must not be reused for the next account."""
+        if request.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.register_blueprint(auth_bp, url_prefix="/api")
     app.register_blueprint(user_bp, url_prefix="/api")
     app.register_blueprint(report_bp, url_prefix="/api")

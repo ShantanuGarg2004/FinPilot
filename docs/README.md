@@ -33,6 +33,7 @@ Reviews and measurements. These record what was found.
 
 - `PLATFORM_ARCHITECTURE_BOTTLENECKS.md`
 - `ARCHITECTURE_AND_ISSUE_6_ANALYSIS.md`
+- `BACK_BUTTON_PREVIOUS_ACCOUNT.md` — back button can show the previous account’s profile
 
 ## execution
 

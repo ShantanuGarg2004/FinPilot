@@ -77,8 +77,12 @@ export function loadReport(userId, fetcher) {
   return promise;
 }
 
-/** Test helper */
-export function _resetReportStore() {
+export function resetReportStore() {
   cache.clear();
   inflight.clear();
+}
+
+/** Test helper */
+export function _resetReportStore() {
+  resetReportStore();
 }

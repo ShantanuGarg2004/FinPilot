@@ -45,3 +45,8 @@ export function loadChatHistory(userId, fetcher) {
   inflight.set(id, promise);
   return promise;
 }
+
+export function resetChatStore() {
+  cache.clear();
+  inflight.clear();
+}

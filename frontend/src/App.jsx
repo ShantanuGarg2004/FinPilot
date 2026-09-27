@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch } from "./config/api";
+import { clearPrivateCaches } from "./lib/clientCache";
+import {
+  currentEntryMatches,
+  currentHistoryState,
+  endSession,
+  pathForForeignEntry,
+  readAccountId,
+  readEpoch,
+  readStoredUserId,
+  startSession,
+  writeStoredUserId,
+} from "./lib/historySession";
 import { normalizePath, pathForPage, resolveRoute } from "./lib/routes";
 import LoginPage from "./pages/LoginPage";
 import { ToastProvider } from "./components/Toast";
@@ -14,46 +26,35 @@ import ChatPage from "./pages/ChatPage";
 import GoalsPage from "./pages/GoalsPage";
 
 const FULL_BLEED = new Set(["profile", "chat"]);
-const ACTIVE_USER_KEY = "finpilot.activeUserId";
-
-function readStoredUserId() {
-  try {
-    const raw = sessionStorage.getItem(ACTIVE_USER_KEY);
-    if (!raw) return null;
-    const id = Number(raw);
-    return Number.isFinite(id) ? id : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredUserId(id) {
-  try {
-    if (id != null) sessionStorage.setItem(ACTIVE_USER_KEY, String(id));
-    else sessionStorage.removeItem(ACTIVE_USER_KEY);
-  } catch {
-    /* private mode / blocked storage */
-  }
-}
 
 function useAppPath() {
   const [path, setPath] = useState(() => normalizePath(window.location.pathname));
 
-  useEffect(() => {
-    const onPop = () => setPath(normalizePath(window.location.pathname));
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
-
   const go = useCallback((page, { replace = false } = {}) => {
     const next = pathForPage(page);
     const current = normalizePath(window.location.pathname);
-    if (next !== current) {
-      if (replace) window.history.replaceState(null, "", next);
-      else window.history.pushState(null, "", next);
+    const state = currentHistoryState();
+    const sameUrl = next === current;
+    if (sameUrl && currentEntryMatches() && !replace) {
+      setPath(next);
+      return;
     }
+    if (replace || sameUrl) window.history.replaceState(state, "", next);
+    else window.history.pushState(state, "", next);
     setPath(next);
   }, []);
+
+  useEffect(() => {
+    const onPop = () => {
+      if (!currentEntryMatches()) {
+        go(pathForForeignEntry(readEpoch(), readStoredUserId()), { replace: true });
+        return;
+      }
+      setPath(normalizePath(window.location.pathname));
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [go]);
 
   return [path, go];
 }
@@ -166,26 +167,65 @@ export default function App() {
   const [account, setAccount] = useState(null);
   const [ready, setReady] = useState(false);
   const [path, go] = useAppPath();
+  const accountRef = useRef(null);
+  accountRef.current = account;
+
+  const signIn = useCallback((me) => {
+    startSession(me.account_id);
+    clearPrivateCaches();
+    go(normalizePath(window.location.pathname), { replace: true });
+    setAccount(me);
+  }, [go]);
+
+  const dropSession = useCallback(() => {
+    endSession();
+    clearPrivateCaches();
+    go("/", { replace: true });
+    setAccount(null);
+  }, [go]);
 
   useEffect(() => {
     let cancelled = false;
     apiFetch("/auth/me")
       .then((me) => {
-        if (!cancelled) setAccount(me);
+        if (cancelled || accountRef.current) return;
+        if (readAccountId() !== String(me.account_id)) {
+          startSession(me.account_id);
+          clearPrivateCaches();
+        }
+        go(normalizePath(window.location.pathname), { replace: true });
+        setAccount(me);
       })
       .catch(() => {
-        if (!cancelled) setAccount(null);
+        if (cancelled || accountRef.current) return;
+        endSession();
+        clearPrivateCaches();
+        setAccount(null);
       })
       .finally(() => {
         if (!cancelled) setReady(true);
       });
-    const expired = () => setAccount(null);
+    const expired = () => dropSession();
+    const onPageShow = (event) => {
+      if (!event.persisted) return;
+      apiFetch("/auth/me")
+        .then((me) => {
+          if (readAccountId() === String(me.account_id)) return;
+          startSession(me.account_id);
+          clearPrivateCaches();
+          go(pathForForeignEntry(readEpoch(), null), { replace: true });
+          setAccount(me);
+        })
+        .catch(() => dropSession());
+    };
     window.addEventListener("finpilot:session-expired", expired);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       cancelled = true;
       window.removeEventListener("finpilot:session-expired", expired);
+      window.removeEventListener("pageshow", onPageShow);
     };
-  }, []);
+  }, [dropSession, go]);
 
   const signOut = useCallback(async () => {
     try {
@@ -193,14 +233,8 @@ export default function App() {
     } catch {
       /* cookie clear is enough */
     }
-    try {
-      sessionStorage.removeItem(ACTIVE_USER_KEY);
-    } catch {
-      /* private mode */
-    }
-    go("/", { replace: true });
-    setAccount(null);
-  }, [go]);
+    dropSession();
+  }, [dropSession]);
 
   const signedOut = resolveRoute({ signedIn: false, path, profileId: null });
 
@@ -212,11 +246,11 @@ export default function App() {
   return (
     <ToastProvider>
       {!ready ? null : (
-        <div key={account ? "app" : "landing"} className="view-enter">
+        <div key={account ? account.account_id : "landing"} className="view-enter">
           {account ? (
             <FinPilotApp account={account} onSignOut={signOut} path={path} go={go} />
           ) : (
-            <LoginPage onSignedIn={setAccount} />
+            <LoginPage onSignedIn={signIn} />
           )}
         </div>
       )}

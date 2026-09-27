@@ -31,7 +31,7 @@ Leave that unset and the client still defaults to `/api`. Do not put `API_SECRET
 | Sign in / create account | `POST /api/auth/login` and `POST /api/auth/signup`. The API sets `finpilot_session`. |
 | Signed out | `GET /api/auth/me` fails and the login page stays up. |
 | Profiles, report, chat, goals | Calls go through `src/config/api.js` with `credentials: "include"`. |
-| Sign out | `POST /api/auth/logout` and the active profile id is cleared from `sessionStorage`. |
+| Sign out | `POST /api/auth/logout`. The active profile id, the sign-in stamp, and the in-memory report, chat, and goal caches are cleared. Back does not reopen the previous account. |
 | Session ended | A 401 `session_expired` returns the person to sign-in. The message is “Your session ended. Sign in again.” |
 
 An account with no profiles yet sees “You are signed in and have no profiles yet.” Profiles copied from the old SQLite file belong to the bootstrap account, not to a brand-new signup.
@@ -44,9 +44,9 @@ An account with no profiles yet sees “You are signed in and have no profiles y
 | `npm run build` | Production bundle |
 | `npm run preview` | Serves the production bundle |
 | `npm run lint` | ESLint |
-| `npm test` | Route guard, report-poll decisions, and advisory HTML escaping. No Flask and no browser. |
+| `npm test` | Route guard, report-poll decisions, advisory HTML escaping, and history sign-in stamps. No Flask and no browser. |
 
-`npm test` runs `node --test` on `src/lib/routes.test.js`, `src/lib/reportPoll.test.js`, and `src/lib/markdownText.test.js`. Those files import plain functions. They do not start Vite.
+`npm test` runs `node --test` on `src/lib/routes.test.js`, `src/lib/reportPoll.test.js`, `src/lib/markdownText.test.js`, and `src/lib/historySession.test.js`. Those files import plain functions. They do not start Vite.
 
 An optional browser check, not part of `npm test` and not required in CI, needs the dev server already running:
 

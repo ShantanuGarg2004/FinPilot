@@ -21,3 +21,7 @@ export function setGoal(userId, result) {
 export function invalidateGoal(userId) {
   results.delete(key(userId));
 }
+
+export function resetGoalStore() {
+  results.clear();
+}
