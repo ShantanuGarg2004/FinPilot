@@ -11,7 +11,7 @@ from routes.chat_routes import chat_bp
 from routes.goal_routes import goal_bp
 from routes.auth_routes import auth_bp
 from database.models import create_tables
-from database.db import close_request_connection
+from database.db import close_request_connection, ping_database
 from config import Config, recommended_worker_count
 from services.actor import Actor, resolve_actor
 from services.rate_limit import build_gateway
@@ -24,6 +24,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+_DATA_PREFIXES = (
+    "/api/users",
+    "/api/profile",
+    "/api/report",
+    "/api/generate-report",
+    "/api/download-report",
+    "/api/chat",
+    "/api/goal-plan",
+)
+
+
+def _is_data_route(path: str) -> bool:
+    path = (path or "").rstrip("/")
+    return any(path == prefix or path.startswith(prefix + "/") for prefix in _DATA_PREFIXES)
+
+
+def _required_scope(method: str, path: str) -> str | None:
+    """data or llm for a scoped key. A browser session is not checked here."""
+    path = (path or "").rstrip("/")
+    if method == "POST" and path in ("/api/generate-report", "/api/chat"):
+        return "llm"
+    if _is_data_route(path):
+        return "data"
+    return None
+
 
 def create_app():
     Config.validate()
@@ -35,8 +60,8 @@ def create_app():
         supports_credentials=True,
     )
 
-    # Wave 1: custom gateway owns limits when backend is sql|memory.
-    # Keep Flask-Limiter imported for route decorators but disable it to avoid double-counting.
+    # The gateway is the limiter when the backend is sql or memory.
+    # Flask-Limiter stays imported for the route decorators and is turned off so it does not count twice.
     if uses_custom_gateway():
         limiter.enabled = False
         gateway = build_gateway()
@@ -79,6 +104,7 @@ def create_app():
     # ── Auth then rate-limit ───────────────────────────────────────────────
     @app.before_request
     def require_api_key():
+        """Cookie first, then a scoped credential. API_SECRET_KEY opens local docs only."""
         if request.method == "OPTIONS":
             g.actor = Actor(kind="anonymous")
             return
@@ -109,8 +135,17 @@ def create_app():
                 "code": "session_expired",
             }), 401
 
+        if g.actor.kind == "api_key":
+            needed = _required_scope(request.method, request.path)
+            if needed is not None and not g.actor.has_scope(needed):
+                return jsonify({
+                    "error": "This API key cannot call this route.",
+                    "code": "forbidden",
+                }), 403
+
     @app.before_request
     def enforce_rate_limit():
+        """Apply the gateway. Health is exempt. Flask-Limiter is not the live counter."""
         if request.method == "OPTIONS":
             return
         if is_public_docs(request.path) or not is_application_api(request.path):
@@ -164,7 +199,14 @@ def create_app():
                 "type": "apiKey",
                 "name": "X-API-Key",
                 "in": "header",
-                "description": "Same value as API_SECRET_KEY",
+                "description": (
+                    "Local docs password (API_SECRET_KEY). "
+                    "It only opens this page. "
+                    "It does not open profiles, reports, chat, or goals. "
+                    "A scoped key is issued with scripts/issue_api_credential.py "
+                    "and sent as X-API-Key. "
+                    "A browser signs in and sends the finpilot_session cookie."
+                ),
             }
         },
         "security": [{"ApiKeyAuth": []}],
@@ -188,13 +230,14 @@ def create_app():
         security: []
         responses:
           200:
-            description: Process is up
+            description: Process is up and the application database answered
           503:
-            description: Rate-limit store is down
+            description: Rate-limit store or application database is down
         """
         gw = get_gateway()
         store_ok = gw.ping() if gw else None
-        status = "ok" if store_ok is not False else "degraded"
+        database_ok = ping_database()
+        status = "ok" if store_ok is not False and database_ok else "degraded"
         return jsonify({
             "status": status,
             "ratelimit_enabled": Config.RATELIMIT_ENABLED,
@@ -204,8 +247,8 @@ def create_app():
             "groq_timeout_seconds": Config.GROQ_TIMEOUT_SECONDS,
             "worker_timeout_seconds": Config.WORKER_TIMEOUT_SECONDS,
             "recommended_workers": recommended_worker_count(),
-            "database_backend": "postgresql",
-            "sqlite_busy_timeout_ms": Config.SQLITE_BUSY_TIMEOUT_MS,
+            "database_ok": database_ok,
+            "database_backend": "postgresql" if database_ok else "unavailable",
         }), (200 if status == "ok" else 503)
 
     app.register_blueprint(auth_bp, url_prefix="/api")

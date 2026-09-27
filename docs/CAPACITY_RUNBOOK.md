@@ -1,70 +1,63 @@
-# Capacity runbook (Wave 3)
+# Capacity runbook
 
-FinPilot keeps report generation synchronous. Capacity comes from worker count, timeouts, and SQLite waiting on the writer instead of failing immediately.
-
-The report job queue and the app-database move to PostgreSQL stay deferred until a load test shows hardened SQLite or sync Groq calls failing.
+The web process serves HTTP. Groq runs in a second process: `python -m services.jobs.worker`. Application data is PostgreSQL database `finpilot`. Rate-limit counters are `finpilot_ratelimit`. The measured result is `docs/testing_reports/REMEDIATION_6_LOAD_TEST_REPORT.md`.
 
 ## Worker formula
 
+The number below is Waitress threads or Gunicorn workers for the **web** process, not the Groq worker.
+
 ```
-workers = max(2, peak_concurrent_llm + headroom)
+threads or workers = max(2, peak_concurrent_llm + headroom)
 ```
 
-Defaults: `PEAK_CONCURRENT_LLM=4`, `WORKER_HEADROOM=2` → **6 workers**.
+Defaults: `PEAK_CONCURRENT_LLM=4`, `WORKER_HEADROOM=2` → **6**.
 
-That covers the early-production band (about 4–8). Reads stay cheap; the limit is how many Groq calls can be in flight. The rate limiter still caps `llm_report` (5/min) and `llm_chat` (15/min).
-
-`GET /api/health` returns `recommended_workers`.
+`GET /api/health` returns `recommended_workers`. The limiter still caps `llm_report` (5 per minute) and `llm_chat` (15 per minute) on the enqueue request.
 
 ## Timeouts
 
 | Setting | Default | Role |
 |---|---|---|
-| `GROQ_TIMEOUT_SECONDS` | 90 | Groq HTTP client timeout |
-| `WORKER_TIMEOUT_SECONDS` | 120 | WSGI worker / proxy timeout |
+| `GROQ_TIMEOUT_SECONDS` | 90 | Groq HTTP client timeout inside the job worker |
+| `WORKER_TIMEOUT_SECONDS` | 120 | A `running` job older than this is failed as `worker_lost`. Match the web server channel timeout to this value. |
 
-`WORKER_TIMEOUT_SECONDS` must be greater than `GROQ_TIMEOUT_SECONDS`. A slow Groq call then returns HTTP **504** with `code: upstream_timeout` instead of the worker being killed.
-
-`SQLITE_BUSY_TIMEOUT_MS` (default 5000) is applied on every SQLite connection via `PRAGMA busy_timeout`.
+`WORKER_TIMEOUT_SECONDS` must be greater than `GROQ_TIMEOUT_SECONDS`.
 
 ## How to run
 
-Local development stays `python app.py` (one process).
+Local development is two processes:
 
-Windows (Waitress):
+```bash
+python app.py
+python -m services.jobs.worker
+```
+
+Windows (Waitress) replaces `python app.py` only. Keep the job worker running beside it:
 
 ```bash
 pip install waitress
-waitress-serve --listen=127.0.0.1:5000 --channel-timeout=120 --threads=6 --call app:create_app
+python -m waitress --host=127.0.0.1 --port=5000 --threads=6 --channel-timeout=120 --call app:create_app
 ```
 
-Linux (Gunicorn):
+Linux (Gunicorn), same split:
 
 ```bash
 pip install gunicorn
 gunicorn --workers 6 --timeout 120 --bind 0.0.0.0:5000 "app:create_app()"
 ```
 
-Match `--timeout` / `--channel-timeout` to `WORKER_TIMEOUT_SECONDS`. Match worker or thread count to `recommended_workers`.
+Match `--timeout` / `--channel-timeout` to `WORKER_TIMEOUT_SECONDS`. Match the web thread or worker count to `recommended_workers`.
 
 ## Load check
 
-With the API already running:
+The issue 6 script signs in with `BOOTSTRAP_ACCOUNT_EMAIL` and `BOOTSTRAP_ACCOUNT_PASSWORD`. It does not take an API key.
 
 ```bash
-python scripts/load_test_wave3.py --base-url http://127.0.0.1:5000 --api-key YOUR_KEY --path /api/health --total 80 --concurrency 20
+python scripts/load_test_issue6.py
 ```
 
-Pass: p95 under 200 ms and zero HTTP 429s on that read path. This script does not call Groq.
+Start the web process and do not treat a pass line in an older script as the current result. The written result is the issue 6 report.
 
 ## Chaos
 
-Kill one worker while a generate is in flight. Other workers should keep serving `GET /api/health`. Rate-limit counters stay in PostgreSQL when `RATELIMIT_STORAGE_BACKEND=sql`, so a restart does not reset quotas.
-
-## Deferred
-
-| Item | Why it waits |
-|---|---|
-| Report job queue | Advisory text is already saved before PDF |
-| App SQLite → PostgreSQL | Only if this load check or real traffic shows write contention |
-| App-DB connection pool | Follows the PostgreSQL move |
+Stop the job worker while a report is `running`. The next time a worker claims work, a `running` job older than `WORKER_TIMEOUT_SECONDS` is marked `failed` with `worker_lost`. The web process should keep serving `GET /api/health`. Rate-limit counters stay in PostgreSQL when `RATELIMIT_STORAGE_BACKEND=sql`.

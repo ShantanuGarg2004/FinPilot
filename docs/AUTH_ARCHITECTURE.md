@@ -1,9 +1,8 @@
 # Auth architecture
 
-**Status:** Design only. Q5 has not started. Current behavior is still `docs/IDENTITY_SEAM.md`.  
-**Date:** 2026-09-25  
-**Scale target:** about 100 concurrent users.  
-**Companions:** `docs/USER_EXPERIENCE.md`, `docs/IDENTITY_SEAM.md`, `docs/PLATFORM_QUALITY_WAVES.md`
+**Status:** Shipped. This file matches the code after Q5, issue 3 (separate session secret), and issue 5 (scoped credentials).  
+**Revised:** 2026-09-27. Issue 5 replaced the deployment key on data routes. `API_SECRET_KEY` opens local Swagger only. A data caller sends the session cookie or a hashed key from `api_credentials`.  
+**Companions:** `docs/ARCHITECTURE.md` (as-built), `docs/USER_EXPERIENCE.md`
 
 This document is the technical contract for per-person login. It does not add a second identity beside `Actor`.
 
@@ -17,43 +16,52 @@ This document is the technical contract for per-person login. It does not add a 
 | External login (SSO) | Not in Q5. The account row must be able to gain a provider later without a second user table. |
 | Existing profiles, reports, and chats | Attach all of them to one bootstrap account. |
 | Browser credential in production | An HttpOnly session cookie. The production frontend does not contain `VITE_API_KEY`. |
-| `API_SECRET_KEY` | Stays on the server. Local scripts and Swagger send it as `X-API-Key`. |
+| `API_SECRET_KEY` | Stays on the server. It is the local Swagger password. Data scripts use a scoped key. |
 
 ---
 
-## 2. Two credentials, one actor
+## 2. Credentials, one actor
 
 | Caller | What they send | `Actor.kind` | `rate_limit_subject()` |
 |---|---|---|---|
-| Signed-in browser | Session cookie | `user` | `acct:<account_id>` |
-| Local script or Swagger | `X-API-Key` or Basic password equal to `API_SECRET_KEY` | `api_key` | Hash of the deployment key, as today |
-| Health, `/`, CORS preflight | Nothing | `anonymous` | No bucket |
+| Signed-in browser | `finpilot_session` | `user` | `acct:<account_id>` |
+| Script with a scoped key | `X-API-Key` matched to `api_credentials` | `api_key` | `acct:<account_id>` |
+| Local Swagger | Basic password equal to `API_SECRET_KEY` | `docs` | Not a data actor |
+| Health, `/`, login, signup, logout, CORS preflight | Nothing | `anonymous` | No bucket |
 
-`resolve_actor()` in `services/actor.py` remains the only place that turns a request into an actor. Login does not add a second `before_request` that reads a user header beside the key check.
+`resolve_actor()` in `services/actor.py` remains the only place that turns a request into an actor.
 
 Resolution order:
 
-1. CORS preflight, `/`, and `/api/health` stay `anonymous`.
-2. If the session cookie verifies, the actor is `user`.
-3. Else if `X-API-Key` or the Swagger Basic password matches `API_SECRET_KEY`, the actor is `api_key`.
-4. Else the request is 401.
+1. CORS preflight, `/`, `/api/health`, and the login, signup, and logout posts stay `anonymous`.
+2. If a session cookie is present and verifies against `SESSION_SECRET` and `accounts.session_version`, the actor is `user`. A bad cookie is `401` `session_expired` and does not fall through.
+3. Else if `X-API-Key` matches a live `api_credentials` row, the actor is `api_key` for that account, with scopes `data`, `llm`, or both.
+4. Else if the path is local Swagger and the key equals `API_SECRET_KEY`, the actor is `docs`.
+5. Else the request is `401` `unauthorized`.
+
+A scoped key on a data route needs scope `data`. `POST /api/generate-report` and `POST /api/chat` need scope `llm`. A missing scope is `403` `forbidden`. `GET /api/auth/me` still requires `kind=user`.
 
 ```mermaid
 flowchart TD
-  req[Incoming request] --> anon{Health, home, or CORS preflight?}
+  req[Incoming request] --> anon{Health, home, auth post, or CORS preflight?}
   anon -->|yes| anonymous[Actor anonymous]
-  anon -->|no| cookie{Session cookie verifies?}
-  cookie -->|yes| userActor[Actor user]
-  cookie -->|no| key{API key matches API_SECRET_KEY?}
-  key -->|yes| apiActor[Actor api_key]
-  key -->|no| deny[401 unauthorized]
-  userActor --> gateway[Rate-limit gateway uses rate_limit_subject]
-  apiActor --> gateway
+  anon -->|no| cookie{Session cookie present?}
+  cookie -->|valid| userActor[Actor user]
+  cookie -->|invalid| expired[401 session_expired]
+  cookie -->|absent| key{X-API-Key matches api_credentials?}
+  key -->|yes| apiActor[Actor api_key for that account]
+  key -->|no| docs{Local Swagger and API_SECRET_KEY?}
+  docs -->|yes| docsActor[Actor docs]
+  docs -->|no| deny[401 unauthorized]
+  userActor --> gateway[Rate-limit gateway]
+  apiActor --> scope{Route scope present?}
+  scope -->|no| forbidden[403 forbidden]
+  scope -->|yes| gateway
 ```
 
-A browser session wins over a bundled API key. Once Q5 ships, the React app stops sending `X-API-Key`. Local scripts keep sending the key and never send the cookie.
+The React app sends the cookie (`credentials: 'include'`) and does not send `X-API-Key`. A scoped key is issued with `scripts/issue_api_credential.py`. The raw key is printed once. The row stores a hash.
 
-`api_key` is a deployment tool, not a person. It may still read every profile until a later decision removes that. Browser `user` actors may read and change only rows whose `account_id` is theirs. Q5 ownership tests must fail closed for the browser. They must not pretend the deployment key became row-level security.
+`api_key` is that account, not a superuser. It sees the same profiles as the cookie for that account. There is no superuser scope.
 
 ---
 
@@ -101,7 +109,7 @@ Email is the login name. It is unique. It is not the financial profile.
 
 ## 4. Session cookie
 
-The cookie is signed with the existing Flask dependency `itsdangerous` (via Flask’s `URLSafeTimedSerializer` or an equivalent signed token). The payload is:
+The cookie is signed with `itsdangerous` `URLSafeTimedSerializer` in `services/sessions.py`, salt `finpilot-session`, secret `SESSION_SECRET`. The payload is:
 
 | Field | Role |
 |---|---|
@@ -120,15 +128,12 @@ Cookie attributes:
 | Path | `/` |
 | Max age | 12 hours |
 
-Why this shape at 100 users:
+Why this shape:
 
-- Login and logout are rare writes. Ordinary API calls do not insert a session row.
-- SQLite remains one writer. A session table read or write on every request would sit on that same writer beside chat and report saves.
-- The cookie is verified in memory. The account row is read only when `session_version` must be checked. That read is a primary-key lookup and stays on the WAL reader path.
-- Password change and “sign out everywhere” increment `session_version`. Older cookies fail closed on the next request.
-- Signing out of this browser clears the cookie. It does not have to write the database.
+- Ordinary API calls do not insert a session row. The cookie is verified in memory. The account row is read to check `session_version`.
+- Logout increments `session_version` and clears the cookie, so that cookie cannot be reused. A later password change can call the same `bump_session_version`.
 
-Do not store the session in process memory. A later multi-worker run (Waitress or Gunicorn) would drop logins on every other worker.
+Do not store the session in process memory. Waitress or Gunicorn would drop those logins on every other worker.
 
 ```mermaid
 flowchart TD
@@ -138,18 +143,14 @@ flowchart TD
   ver -->|no| expired
   ver -->|yes| actor[Actor user for this account_id]
   actor --> own[Ownership check in the repository]
-  pwd[Password change or sign out everywhere] --> bump[Increment session_version]
-  bump --> ver
-  localOut[Sign out on this browser] --> clear[Clear cookie only]
+  localOut[Sign out] --> bumpOut[Increment session_version and clear the cookie]
 ```
 
 ---
 
 ## 5. Local browser and the cookie
 
-Today the SPA on port 5173 calls `http://127.0.0.1:5000` and sends `X-API-Key`. Those are two sites. A `SameSite=Lax` cookie set by port 5000 is not sent on that cross-site `fetch`.
-
-Q5 local development uses the Vite dev server as a proxy so the browser calls its own origin (`/api` on port 5173) and Vite forwards to Flask. The cookie is then first-party and `SameSite=Lax` works on local HTTP. `credentials: 'include'` is set on those fetches. `VITE_API_KEY` is omitted from the browser client.
+The Vite dev server proxies `/api` to Flask. The browser calls its own origin (`http://localhost:5173`) and the cookie is first-party, so `SameSite=Lax` works on local HTTP. `credentials: 'include'` is set on those fetches. The browser client does not send `VITE_API_KEY`.
 
 CORS stays an allow-list. Credentialed browser calls require a specific origin, never `*`. Local origins remain `http://localhost:5173` and `http://127.0.0.1:5173`. A future hosted frontend adds its origin to `CORS_ORIGINS` when the API is actually reachable from that host.
 
@@ -218,10 +219,10 @@ New signups after Q5 create their own account and only see profiles they create.
 
 ---
 
-## 8. What Q5 will not do
+## 8. What this auth does not do
 
 - No OAuth, OIDC, or hosted login service.
 - No second middleware beside `resolve_actor()`.
-- No `VITE_API_KEY` in a production frontend build.
-- No move of the app database to PostgreSQL. That remains a Q6 decision.
-- No claim that the deployment API key is per-person security.
+- No `VITE_API_KEY` in the production browser.
+- No superuser scope. `API_SECRET_KEY` is not a data actor.
+- Application data is PostgreSQL. That move is already done and is described in `docs/ARCHITECTURE.md`.

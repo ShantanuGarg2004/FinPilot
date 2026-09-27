@@ -8,6 +8,7 @@ import pytest
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 from services.pdf_service import clean_ai_text, generate_pdf_report
 from services import ai_service
@@ -21,10 +22,8 @@ def client(tmp_path, monkeypatch):
     gw_mod._gateway = None
     app = create_app()
     app.config["TESTING"] = True
-    return app.test_client(), {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    client = app.test_client()
+    return client, sign_in(client)
 
 
 def _create_user(client, headers):
@@ -111,11 +110,10 @@ def test_generate_persists_when_pdf_fails(client, monkeypatch):
         data=json.dumps({"user_id": user_id}),
         headers=headers,
     )
-    assert res.status_code == 200
-    body = res.get_json()
-    assert body["pdf_ready"] is False
-    assert "Advisory text saved" in body["ai_report"]
-    assert body.get("pdf_error")
+    assert res.status_code == 202
+    from services.jobs.worker import process_once
+    finished = process_once()
+    assert finished["status"] == "succeeded"
 
     get = c.get(f"/api/report/{user_id}", headers=headers)
     assert get.status_code == 200
@@ -140,11 +138,14 @@ def test_download_regenerates_pdf_without_ai(client, monkeypatch):
         "generate_pdf_report",
         lambda *a, **k: (False, "fail once"),
     )
-    assert c.post(
+    posted = c.post(
         "/api/generate-report",
         data=json.dumps({"user_id": user_id}),
         headers=headers,
-    ).status_code == 200
+    )
+    assert posted.status_code == 202
+    from services.jobs.worker import process_once
+    assert process_once()["status"] == "succeeded"
 
     # Download: PDF succeeds (regen path)
     calls = {"n": 0}

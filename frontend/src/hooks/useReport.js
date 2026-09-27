@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch, apiFetchRaw } from "../config/api";
 import { formatApiErrorMessage, toastTypeForError } from "../lib/apiErrors";
 import {
@@ -7,10 +7,13 @@ import {
   peekReport,
   setReportCache,
 } from "../lib/reportStore";
+import { isActiveJob, nextReportState } from "../lib/reportPoll";
 
 /* Only toast true "no report" once per profile across revisits. */
 const shownNoReportToast = new Set();
 const shownThrottleToast = new Set();
+const POLL_MS = 2000;
+const POLL_BUDGET_MS = 120000;
 
 function notify(showToast, err, fallback) {
   const type = toastTypeForError(err);
@@ -21,34 +24,109 @@ function notify(showToast, err, fallback) {
 export default function useReport(userId, showToast) {
   const cached = userId != null ? peekReport(userId) : undefined;
   const [report, setReport] = useState(() =>
-    cached === undefined ? null : cached
+    cached && cached.ai_report ? cached : null
   );
   const [fetching, setFetching] = useState(() => cached === undefined && userId != null);
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState(() => isActiveJob(cached?.job));
   const [loadError, setLoadError] = useState(null);
+  const pollGeneration = useRef(0);
+
+  const applySettled = useCallback((raw) => {
+    if (raw?.ai_report) {
+      const normalised = setReportCache(userId, raw);
+      setReport(normalised);
+      setLoadError(null);
+      return normalised;
+    }
+    return null;
+  }, [userId]);
+
+  const pollJob = useCallback(async (generation) => {
+    const started = Date.now();
+    while (pollGeneration.current === generation && Date.now() - started < POLL_BUDGET_MS) {
+      try {
+        const raw = await apiFetch(`/report/${userId}`);
+        if (pollGeneration.current !== generation) return;
+        const next = nextReportState(
+          { phase: "generating", report: null, generation },
+          { type: "snapshot", body: raw },
+        );
+        if (next.action === "stop" && next.error) {
+          if (next.report?.ai_report) applySettled(next.report);
+          showToast?.(
+            next.error === "worker_lost"
+              ? "Report generation took too long. Try again."
+              : "Report generation failed. Your previous report is unchanged.",
+            "error"
+          );
+          setGenerating(false);
+          return;
+        }
+        if (next.action === "stop") {
+          applySettled(next.report);
+          shownNoReportToast.delete(userId);
+          if (next.report?.pdf_ready === false) {
+            showToast?.("Report saved — PDF will be created when you download", "warning");
+          } else {
+            showToast?.("Report generated", "success");
+          }
+          setGenerating(false);
+          return;
+        }
+      } catch (err) {
+        if (pollGeneration.current !== generation) return;
+        if (err?.code === "rate_limit_exceeded" || err?.status === 429) {
+          notify(showToast, err, "Too many report requests. Please wait and retry.");
+        } else if (!(err?.code === "not_found" || err?.status === 404)) {
+          notify(showToast, err, "Could not load report");
+          setGenerating(false);
+          return;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
+    if (pollGeneration.current === generation) {
+      const timedOut = nextReportState(
+        { phase: "generating", report: null, generation },
+        { type: "timeout" },
+      );
+      if (timedOut.action === "stop") {
+        showToast?.("Report generation took too long. Try again.", "error");
+        setGenerating(false);
+      }
+    }
+  }, [applySettled, showToast, userId]);
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++pollGeneration.current;
     const load = async () => {
       const hit = peekReport(userId);
-      if (hit !== undefined) {
-        setReport(hit);
+      if (hit !== undefined && !isActiveJob(hit?.job)) {
+        setReport(hit && hit.ai_report ? hit : null);
         setFetching(false);
+        setGenerating(false);
         setLoadError(hit ? null : { code: "not_found", status: 404 });
         return;
       }
 
-      setFetching(true);
+      setFetching(hit === undefined);
       setLoadError(null);
       try {
         const d = await loadReport(userId, apiFetch);
-        if (!cancelled) {
-          setReport(d);
-          shownThrottleToast.delete(userId);
+        if (cancelled) return;
+        if (d?.ai_report) setReport(d);
+        shownThrottleToast.delete(userId);
+        if (isActiveJob(d?.job)) {
+          setGenerating(true);
+          pollJob(generation);
+        } else {
+          setGenerating(false);
         }
       } catch (err) {
         if (cancelled) return;
         setLoadError(err);
+        setGenerating(false);
 
         if (err?.code === "not_found" || err?.status === 404) {
           setReport(null);
@@ -71,36 +149,32 @@ export default function useReport(userId, showToast) {
     if (userId != null) load();
     return () => {
       cancelled = true;
+      pollGeneration.current += 1;
     };
-  }, [userId, showToast]);
+  }, [userId, showToast, pollJob]);
 
   const generate = useCallback(async () => {
+    const next = nextReportState(
+      { phase: generating ? "generating" : "idle", generation: pollGeneration.current },
+      { type: "enqueue" },
+    );
+    if (next.action === "ignore") return;
     setGenerating(true);
     try {
-      const data = await apiFetch("/generate-report", {
+      pollGeneration.current = next.generation;
+      await apiFetch("/generate-report", {
         method: "POST",
         body: JSON.stringify({ user_id: userId }),
       });
-      const normalised = setReportCache(userId, data);
-      setReport(normalised);
-      setLoadError(null);
-      shownNoReportToast.delete(userId);
+      invalidateReport(userId);
       shownThrottleToast.delete(userId);
       shownThrottleToast.delete(`load-${userId}`);
-      if (data?.pdf_ready === false) {
-        showToast?.(
-          "Report saved — PDF will be created when you download",
-          "warning"
-        );
-      } else {
-        showToast?.("Report generated", "success");
-      }
+      pollJob(next.generation);
     } catch (e) {
-      notify(showToast, e, "Could not generate report");
-    } finally {
       setGenerating(false);
+      notify(showToast, e, "Could not generate report");
     }
-  }, [userId, showToast]);
+  }, [generating, pollJob, userId, showToast]);
 
   const download = useCallback(async () => {
     try {
@@ -112,7 +186,6 @@ export default function useReport(userId, showToast) {
       a.download = `financial_report_profile_${userId}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-      // Download may have regenerated PDF — refresh cache flag
       const current = peekReport(userId);
       if (current && current.pdf_ready === false) {
         setReportCache(userId, { ...current, pdf_ready: true, pdf_error: null });
@@ -136,7 +209,8 @@ export default function useReport(userId, showToast) {
     setLoadError(null);
     try {
       const d = await loadReport(userId, apiFetch);
-      setReport(d);
+      setReport(d && d.ai_report ? d : null);
+      if (isActiveJob(d?.job)) setGenerating(true);
     } catch (err) {
       setLoadError(err);
       if (err?.code === "not_found" || err?.status === 404) {

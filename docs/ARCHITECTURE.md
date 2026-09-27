@@ -1,369 +1,166 @@
-# FinPilot AI — Architecture, Services & Production Readiness
+# FinPilot AI — as-built architecture
 
-> Internal engineering reference. This document describes the **as-built** state of the
-> codebase (not the aspirational design), the services it offers, and an honest
-> assessment of what stands between the current build and a production deployment.
+**Date:** 2026-09-27  
+**Audience:** Someone who has not read the review. This file describes the process that is running after remediation issues 1–7.  
+**Historical notes:** `docs/PLATFORM_QUALITY_WAVES.md` explains why older code looks the way it does. It is not the current system.
 
-- **Project:** FinPilot AI — AI-Powered Personal Financial Advisor
-- **Backend:** Python 3.10+ / Flask (app-factory pattern)
-- **Frontend:** React 19 + Vite (single-page client)
-- **Persistence:** SQLite (WAL journal mode)
-- **External dependency:** Groq Chat Completions API (via the official `groq` SDK) — per-service
-  models: `openai/gpt-oss-120b` (report) and `llama-3.1-8b-instant` (chat)
+A browser signs in. The API stores the session in an HttpOnly cookie. Report and chat calls to Groq run in a separate worker process. Application data is PostgreSQL database `finpilot`. Rate-limit counters are PostgreSQL database `finpilot_ratelimit`. PDFs are files on disk.
+
+Capacity, copied from `docs/testing_reports/REMEDIATION_6_LOAD_TEST_REPORT.md`: This host does not meet the written pass lines for 100 concurrent health checks or 100 concurrent profile lists. Report enqueue does. Eighty lists while 10 report jobs were running, and the chat gate after chat was queued, are both still over 300 ms. It is not fair to say that about 100 people can load the app and list their profiles at once, or that a report no longer freezes those reads.
 
 ---
 
-## 1. System Overview
+## 1. Start the app
 
-FinPilot AI ingests a user's financial profile (age, income, expenses, savings, risk
-appetite, goals, optional EMI) and layers three independent engines on top of it:
+PostgreSQL comes up with Docker. The API and the worker are two processes. The React app is a third.
 
-1. A **deterministic financial-health scorer** — 7 weighted pillars, 0–100 scale, no AI.
-2. An **LLM advisory layer** — turns the scored profile into a structured advisory report
-   and a conversational chat assistant via Groq.
-3. A **goal-feasibility simulator** — SIP (annuity-due) mathematics projecting
-   Conservative / Balanced / Aggressive scenarios, entirely rule-based.
-
-Reports are rendered to branded PDFs, persisted to SQLite, and served through a
-rate-limited, API-key-protected REST API with auto-generated Swagger docs.
-
----
-
-## 2. High-Level Architecture
-
-```mermaid
-flowchart LR
-    subgraph CLIENT["Frontend — React + Vite"]
-        UI["FinancialAdvisor.jsx<br/>Profile · Report · Chat · Simulator"]
-    end
-
-    subgraph APP["Flask App (app.py — create_app factory)"]
-        MW["before_request<br/>X-API-Key auth"]
-        RL["Flask-Limiter<br/>global + per-route limits"]
-        SW["Flasgger<br/>Swagger UI /apidocs"]
-        subgraph BP["Blueprints (url_prefix=/api)"]
-            UB["user_routes"]
-            RB["report_routes"]
-            CB["chat_routes"]
-            GB["goal_routes"]
-        end
-    end
-
-    subgraph SVC["Service Layer"]
-        HS["health_service<br/>7-pillar scorer"]
-        GS["goal_service<br/>SIP PMT engine"]
-        AS["ai_service<br/>Groq wrapper"]
-        PS["pdf_service<br/>ReportLab builder"]
-        PSVC["profiling_service<br/>(currently unused)"]
-        PB["prompt_builder<br/>(currently unused)"]
-    end
-
-    subgraph EXT["External"]
-        OAI["Groq API<br/>report + chat models"]
-    end
-
-    subgraph DATA["SQLite — finance.db (WAL)"]
-        T1[("users")]
-        T2[("reports")]
-        T3[("chat_history")]
-    end
-
-    UI -- "HTTP + X-API-Key" --> MW
-    MW --> RL --> BP
-
-    UB --> T1
-    RB --> HS
-    RB --> AS
-    RB --> PS
-    RB --> T1 & T2
-    CB --> AS
-    CB --> T1 & T3
-    GB --> GS
-    GB --> T1
-
-    AS --> OAI
-
-    classDef unused stroke-dasharray: 5 5,stroke:#f59e0b,color:#f59e0b;
-    class PSVC,PB unused;
+```bash
+docker compose up -d
+python app.py
+python -m services.jobs.worker
 ```
 
-> **Note (accuracy):** `ai_service.py` builds its prompts inline. It does **not** import
-> `utils/prompt_builder.py`, and no route imports `services/profiling_service.py`.
-> Both modules are dead code today (shown dashed above).
+Frontend, from `frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+The Vite server is `http://localhost:5173` and proxies `/api` to `http://127.0.0.1:5000`, so the session cookie stays on one origin. Sign in from the landing page.
+
+Required environment names (values live in `.env`, never in this file): `GROQ_API_KEY`, `API_SECRET_KEY`, `SESSION_SECRET`. `SESSION_SECRET` signs `finpilot_session`. It must be at least 32 characters and different from `API_SECRET_KEY`. Changing it signs every browser out.
+
+`APP_DATABASE_URL` points at database `finpilot`. `RATELIMIT_DATABASE_URL` points at `finpilot_ratelimit`. `RATELIMIT_STORAGE_BACKEND=sql` turns on the gateway. `FLASK_ENV=development` turns Swagger on at `http://127.0.0.1:5000/apidocs/`.
+
+`API_SECRET_KEY` is the local Swagger password (HTTP Basic, any username). It does not open profiles, reports, chat, or goals. A script that must call those routes uses a scoped key from `python scripts/issue_api_credential.py`. The script prints the raw key once. The database stores a hash.
+
+`SQLITE_IMPORT` defaults off. A normal start does not open a SQLite file. Set it only to copy an old `finance.db` into an empty `public` schema.
+
+`BOOTSTRAP_ACCOUNT_EMAIL` and `BOOTSTRAP_ACCOUNT_PASSWORD` are required only when existing profiles have no `account_id`. Startup then attaches those profiles to one account. The password is stored as a hash.
+
+The web process can also be Waitress or Gunicorn. Thread and timeout numbers are in `docs/CAPACITY_RUNBOOK.md`. The Groq worker is still `python -m services.jobs.worker` beside that process. Waitress is a host tool. It is not in `requirements.txt`.
 
 ---
 
-## 3. Request Lifecycle
+## 2. Request path
 
-Every `/api/*` call flows through the same guard rails before reaching business logic.
+`app.py` `require_api_key` then `enforce_rate_limit`, then the blueprint. `services/actor.py` `resolve_actor` is the only place a request becomes an actor.
 
 ```mermaid
 sequenceDiagram
-    participant C as Client
-    participant MW as before_request (auth)
-    participant RL as Rate Limiter
-    participant R as Route Handler
-    participant SC as Marshmallow Schema
-    participant S as Service Layer
-    participant DB as SQLite
+    participant C as Browser or script
+    participant A as require_api_key
+    participant G as Rate-limit gateway
+    participant R as Blueprint
 
-    C->>MW: HTTP request + X-API-Key
-    alt path not /api/* or is docs/OPTIONS
-        MW-->>C: pass through (no auth)
-    else /api/* request
-        MW->>MW: compare X-API-Key to API_SECRET_KEY
-        alt key mismatch
-            MW-->>C: 401 Unauthorised
-        else key ok
-            MW->>RL: enforce per-IP limits
-            alt over limit
-                RL-->>C: 429 Too Many Requests
-            else within limit
-                RL->>R: dispatch
-                R->>SC: schema.load(json)
-                alt validation error
-                    SC-->>C: 400 + field details
-                else valid
-                    R->>S: delegate to service
-                    S->>DB: read / write
-                    DB-->>S: rows
-                    S-->>R: result
-                    R-->>C: 200 JSON
-                end
-            end
+    C->>A: Cookie, or X-API-Key, or neither
+    alt OPTIONS, /, health, login, signup, logout
+        A->>G: anonymous, health is exempt
+    else session cookie present
+        A->>A: Verify SESSION_SECRET and session_version
+        alt cookie valid
+            A->>G: Actor user
+        else cookie bad
+            A-->>C: 401 session_expired
         end
+    else scoped X-API-Key
+        A->>A: Match hash in api_credentials
+        alt scope missing
+            A-->>C: 403 forbidden
+        else scope ok
+            A->>G: Actor api_key for that account
+        end
+    else local Swagger and API_SECRET_KEY
+        A->>R: Actor docs, no data route
+    else no match
+        A-->>C: 401 unauthorized
     end
+    G->>R: blueprint
 ```
+
+Order inside `resolve_actor`:
+
+1. A presented `finpilot_session` cookie is resolved first. A bad cookie does not fall through to a key.
+2. Else `X-API-Key` (or the Swagger Basic password) is matched to a non-revoked row in `api_credentials`. The actor is `api_key`. `credential` is that account id. `scopes` is `data`, `llm`, or both.
+3. Else, on local `/apidocs/` and `/apispec.json` only, a value equal to `API_SECRET_KEY` is `docs`.
+4. Else the request is rejected.
+
+`GET /api/auth/me` still requires `kind=user`. A scoped key is not a browser session.
+
+Data routes need scope `data`. `POST /api/generate-report` and `POST /api/chat` need scope `llm`. A browser session is not checked for scopes. A scoped key without the scope is `403` `forbidden`. An unmatched key is `401` `unauthorized`.
+
+The gateway in `services/rate_limit` is the live limiter when `RATELIMIT_STORAGE_BACKEND` is `sql` or `memory`. Flask-Limiter stays imported and its decorators stay on routes, and `limiter.enabled` is false on that path so the two do not both count. Unknown `/api` paths return `429` `rate_policy_missing`. Health is exempt.
+
+Logout (`routes/auth_routes.py`) increments `accounts.session_version` and clears the cookie. Older cookies fail on the next request.
 
 ---
 
-## 4. Services Offered
+## 3. Report job and chat job
 
-### 4.1 User Profiles — `routes/user_routes.py`
+Groq does not run inside the HTTP request. `routes/report_routes.py` and `routes/chat_routes.py` insert a row. `services/jobs/worker.py` claims it.
 
-| Endpoint | Method | Rate limit | Purpose |
-|---|---|---|---|
-| `/api/users` | GET | default | List all saved profiles |
-| `/api/profile` | POST | default | Create a profile |
-| `/api/profile/<user_id>` | DELETE | default | Delete profile + cascade report/chat |
+| Step | File | What happens |
+| --- | --- | --- |
+| Enqueue report | `database/repository.py` `enqueue_report_job` | Inserts `jobs.kind = 'report'`, status `queued`. A second click while that profile already has a queued or running report returns the same job. |
+| Enqueue chat | `enqueue_chat_job` | Inserts `kind = 'chat'` and stores the query in `payload`. Many chats may be queued. |
+| Claim | `claim_next_report_job` | `FOR UPDATE SKIP LOCKED` on the oldest queued report or chat. Status becomes `running`. |
+| Report work | `_run_report` | Scores health, calls Groq, saves the advisory text, then writes the PDF. Text is saved before the PDF. A PDF failure still marks the job `succeeded`. A Groq failure marks it `failed`. |
+| Chat work | `_run_chat` | Calls Groq, then `save_chat_turn`. A failed chat is not stored. |
+| Stale claim | `fail_stale_report_jobs` | A `running` row older than `WORKER_TIMEOUT_SECONDS` (default 120) becomes `failed` with `error_code` `worker_lost`. |
 
-Profiles are validated by `ProfileSchema` (age 1–120, non-negative money fields, risk in
-`{low, medium, high}`, goals 3–500 chars, optional `debt_emi`). The DELETE path manually
-removes rows from `reports`, `chat_history`, then `users` inside one transaction.
+`POST /api/generate-report` returns `202` `{"job_id", "status"}`. `POST /api/chat` returns `202` `{"query", "job_id", "status"}`. Rate limits stay on that enqueue request.
 
-### 4.2 Financial Health Scorer — `services/health_service.py`
+`GET /api/report/<id>` (`get_stored_report`) returns the stored report when one exists. It adds `job` when the newest report job is `queued`, `running`, or `failed`. A `succeeded` job is omitted, because the stored report is the result. The same rule is on `GET /api/chat/history/<id>` for the newest chat job.
 
-Pure-Python deterministic engine, no external calls. Returns a 0–100 score plus
-per-pillar breakdown, insights, warnings, and UI bar percentages.
-
-```mermaid
-flowchart TD
-    P["profile dict"] --> R["derive ratios<br/>savings%, expense%, emergency months, DTI"]
-    R --> S1["Savings rate /25"]
-    R --> S2["Expense control /20"]
-    R --> S3["Emergency fund /20"]
-    R --> S4["Debt-to-income /15"]
-    R --> S5["Retirement adequacy /10"]
-    R --> S6["Tax efficiency (80C) /5"]
-    R --> S7["Surplus buffer /5"]
-    S1 & S2 & S3 & S4 & S5 & S6 & S7 --> SUM["sum → min(100)"]
-    SUM --> OUT["score + insights + warnings + pillar_scores"]
-```
-
-| Pillar | Max | Full-marks threshold |
-|---|---|---|
-| Savings rate | 25 | ≥ 30% of income |
-| Expense control | 20 | ≤ 50% of income |
-| Emergency fund | 20 | ≥ 6 months of expenses |
-| Debt-to-income | 15 | ≤ 20% DTI (partial credit if EMI not supplied) |
-| Retirement adequacy | 10 | FV of savings @10% CAGR ≥ 80% of 25× annual expenses |
-| Tax efficiency | 5 | Estimated 80C utilisation (heuristic: 30% of savings) |
-| Surplus buffer | 5 | Any positive monthly surplus |
-
-### 4.3 AI Advisory Layer — `services/ai_service.py`
-
-Wraps the **Groq** client (official `groq` SDK, temperature 0.7, max 1000 tokens) with
-**per-service model routing**. The shared `ask_gpt(prompt, model=None)` helper defaults to
-`Config.GROQ_CHAT_MODEL` and logs failures via `logger.exception`. Two entry points:
-
-- `generate_financial_report(profile, health_data)` → structured 6-section markdown report,
-  using `Config.GROQ_REPORT_MODEL` (default `openai/gpt-oss-120b`) for depth/quality.
-- `chat_with_advisor(profile, query, history)` → conversational response, using
-  `Config.GROQ_CHAT_MODEL` (default `llama-3.1-8b-instant`) for low latency.
-
-All calls return a `(success: bool, payload: str)` tuple; exceptions are caught, logged, and
-surfaced as the error string rather than raised. Models are configurable via `.env`
-(`GROQ_REPORT_MODEL` / `GROQ_CHAT_MODEL`).
-
-### 4.4 Report + PDF — `routes/report_routes.py` + `services/pdf_service.py`
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as report_routes
-    participant H as health_service
-    participant AI as ai_service
-    participant OAI as Groq
-    participant PDF as pdf_service
-    participant DB as SQLite reports
-
-    C->>API: POST /api/generate-report {user_id} (5/min)
-    API->>DB: fetch profile
-    API->>H: calculate_health_score(profile)
-    H-->>API: score, insights, warnings
-    API->>AI: generate_financial_report(...)
-    AI->>OAI: chat.completions.create (report model)
-    OAI-->>AI: report text
-    AI-->>API: ai_report
-    API->>PDF: render to NamedTemporaryFile
-    PDF-->>API: pdf bytes (temp file deleted in finally)
-    API->>DB: UPSERT reports (health_json, ai_report, pdf_blob)
-    API-->>C: {user_id, health, ai_report}
-```
-
-The PDF is generated to a secure temp file, read into memory, stored as a BLOB, and the
-temp file is deleted in a `finally` block. Download is served from the DB BLOB via
-`/api/download-report/<user_id>`.
-
-### 4.5 Conversational Chat — `routes/chat_routes.py`
-
-| Endpoint | Method | Rate limit | Purpose |
-|---|---|---|---|
-| `/api/chat` | POST | 15/min | Ask the advisor |
-| `/api/chat/history/<user_id>` | GET | default | Fetch history (last 100) |
-| `/api/chat/history/<user_id>` | DELETE | default | Clear history |
-
-The last 20 messages are loaded for context; user and AI turns are persisted to
-`chat_history`.
-
-> **Known bug:** `chat_with_advisor` iterates history with `msg.get("content")`, but the
-> route supplies messages keyed as `message`. The conversation-context block is therefore
-> **always empty** and chat is effectively stateless despite the history round-trip.
-
-### 4.6 Goal Feasibility Simulator — `services/goal_service.py`
-
-Rule-based SIP engine using the annuity-due PMT formula:
-
-```
-P = FV × r / [ ((1 + r)^n − 1) × (1 + r) ]
-```
-
-- Picks a CAGR tier (5–7% / 8–12% / 10–15%) from risk appetite and horizon.
-- Computes required monthly SIP for Conservative / Balanced / Aggressive scenarios.
-- Produces a 0–100 feasibility score (savings coverage 70 + horizon bonus 20 + risk
-  alignment 10) and a gap analysis.
-- Binary-searches the achievable timeline at the current savings rate.
+The React report hook polls that GET about every 2 seconds. The chat hook polls history about every 1 second. Both stop around 120 seconds.
 
 ---
 
-## 5. Data Model
+## 4. Data
 
-```mermaid
-erDiagram
-    USERS ||--o| REPORTS : "1:1 (unique user_id)"
-    USERS ||--o{ CHAT_HISTORY : "1:N"
+| Store | What it holds | Where it is set |
+| --- | --- | --- |
+| PostgreSQL database `finpilot` | Accounts, profiles, reports, chat, jobs, API credentials | `APP_DATABASE_URL`, pool in `database/db.py` |
+| PostgreSQL database `finpilot_ratelimit` | Rate-limit buckets | `RATELIMIT_DATABASE_URL` |
+| Directory `data/pdfs` | `profile_<user_id>.pdf` | `PDF_STORAGE_DIR` |
 
-    USERS {
-        int id PK
-        int age
-        real income
-        real expenses
-        real savings
-        text risk_appetite
-        text financial_goals
-        text created_at
-    }
-    REPORTS {
-        int id PK
-        int user_id FK "UNIQUE, ON DELETE CASCADE"
-        text health_json
-        text ai_report
-        blob pdf_blob
-        text generated_at
-    }
-    CHAT_HISTORY {
-        int id PK
-        int user_id FK "ON DELETE CASCADE"
-        text role "user | ai"
-        text message
-        text created_at
-    }
-```
+`database/models.py` `create_tables` creates the tables on startup (`CREATE TABLE IF NOT EXISTS`). There is no migration framework. `reports` stores `pdf_path`. It does not store PDF bytes. `jobs.kind` is `report` or `chat`.
 
-Connections open with `PRAGMA journal_mode=WAL`, `foreign_keys=ON`,
-`synchronous=NORMAL`. Indexes exist on `reports(user_id)` and
-`chat_history(user_id, id DESC)`.
+Production uses schema `public`. `database/db.py` `schema_name()` documents the exception: a test sets `DB_NAME` to a throwaway path and gets schema `t_<hash>` inside database `finpilot_test`. That is test isolation, not a multi-tenant feature.
+
+SQL under `database/` uses named binds (`:user_id`). `AppConnection.execute` accepts a dict. A tuple raises `DatabaseError`.
+
+Ownership is `users.account_id` in `database/repository.py`. Reports and chats stay on `users.id`. A browser or a scoped key sees that account’s profiles. A mismatch is hidden as not found.
 
 ---
 
-## 6. Production-Readiness Assessment
+## 5. What is intentionally absent
 
-Overall the codebase is **a strong, well-structured prototype / MVP**. It is **not yet
-production-ready** for a public multi-user deployment. Assessment by dimension:
+- No Redis. Sessions are a signed cookie. Rate-limit state is PostgreSQL.
+- No OAuth and no JWT access-token service. Login is email and password hashed in this app.
+- No Alembic. Schema changes ship as `CREATE TABLE IF NOT EXISTS` and small `ALTER`s in `database/models.py`.
+- Chat is queued. The issue 6 measurement showed a synchronous chat call holding the web process, so `POST /api/chat` now returns `202` and the worker calls Groq.
+- The production browser does not send `VITE_API_KEY`. That variable is for local scripts only, and the env key is not a data actor.
 
-| Dimension | Status | Notes |
-|---|:---:|---|
-| Code structure | 🟢 Good | Clean app-factory, blueprints, service separation, schema validation |
-| Input validation | 🟢 Good | Marshmallow on every mutating route with field-level errors |
-| Error handling | 🟢 Good | Broad try/except, structured logging, safe temp-file cleanup |
-| API security | 🟡 Partial | Single shared `X-API-Key`; no per-user identity/authz |
-| CORS | 🟡 Partial | `origins: "*"` on `/api/*` — tighten for production |
-| Rate limiting | 🟡 Partial | In-memory store by default; not shared across instances |
-| Persistence | 🟡 Partial | SQLite is single-writer; won't scale horizontally |
-| Secrets | 🟢 Good | Loaded from `.env`, validated at startup, not hard-coded |
-| Runtime | 🔴 Gap | `app.run(debug=True)` — dev server + debugger, unsafe in prod |
-| Dead code | 🔴 Gap | `prompt_builder.py` & `profiling_service.py` unused |
-| Correctness bug | 🔴 Gap | Chat history context never populated (`content` vs `message`) |
-| Tests | 🟡 Partial | Offline unit tests for `config` + `ai_service` (17 tests, Groq mocked); scoring/simulation engines still uncovered |
-| Containerisation/CI | 🔴 Gap | No Dockerfile, no CI pipeline |
-| Observability | 🟡 Partial | Logging present; no metrics/tracing/health-with-DB probe |
-| Branding | 🟡 Minor | Frontend header reads "FinanceAI"; project is "FinPilot" |
-| Repo hygiene | 🟡 Minor | `finance.db` and generated PDFs were committed (now git-ignored) |
-
-### 6.1 Must-fix before production
-
-1. **Replace the dev server.** Serve via a WSGI server (e.g. `gunicorn`/`waitress`) and set
-   `debug=False`. The Werkzeug debugger allows arbitrary code execution if exposed.
-2. **Fix the chat-context bug.** Align the history key (`message`) between
-   `chat_routes` and `ai_service.chat_with_advisor`, or route chat through
-   `utils/prompt_builder.build_chat_prompt` (which already reads `message`).
-3. **Harden auth.** A single shared API key gives every client access to every profile.
-   Introduce per-user authentication/authorisation before storing real user data.
-4. **Externalise rate-limit + move off SQLite** for multi-instance deployments
-   (Redis for Flask-Limiter, PostgreSQL for data).
-5. **Lock down CORS** to known frontend origins.
-
-### 6.2 Should-fix / hygiene
-
-- Remove or wire up the dead `prompt_builder.py` and `profiling_service.py` (the prompt
-  builder is notably higher-quality than the inline prompts currently used).
-- Add a test suite for the deterministic engines (`health_service`, `goal_service`) — they
-  are pure functions and trivially testable.
-- Add a Dockerfile + CI (lint, test) pipeline.
-- Add an authenticated `/health` probe that also verifies DB connectivity.
-- Reconcile frontend branding ("FinanceAI" → "FinPilot").
-- Pin dependency versions in `requirements.txt` (currently unpinned).
-
-### 6.3 Production topology (target)
-
-```mermaid
-flowchart LR
-    U["Users"] --> CDN["CDN / Static host<br/>(built React bundle)"]
-    U --> LB["HTTPS Load Balancer"]
-    LB --> G1["gunicorn worker 1"]
-    LB --> G2["gunicorn worker N"]
-    G1 & G2 --> PG[("PostgreSQL")]
-    G1 & G2 --> RD[("Redis<br/>rate-limit store")]
-    G1 & G2 --> OAI["Groq API"]
-```
+Profile checks on the request path live in Marshmallow schemas. Prompts are built in `services/ai_service.py`.
 
 ---
 
-## 7. Summary
+## 6. Files
 
-FinPilot AI is a cleanly layered Flask + React application with three genuinely useful,
-well-implemented engines (health scoring, AI advisory, goal simulation) and solid
-request-validation and error-handling discipline. The remaining gap to production is
-primarily **operational** (real WSGI runtime, per-user auth, scalable datastore, tests, CI)
-plus a **small set of correctness/cleanup fixes** (chat-context bug, dead modules,
-branding). None of these are architecturally deep — the foundation is sound.
+| File | Role |
+| --- | --- |
+| `app.py` | Factory, auth, gateway, health, blueprints |
+| `services/actor.py` | Cookie, then scoped credential, then docs password |
+| `services/sessions.py` | `finpilot_session` signed with `SESSION_SECRET` |
+| `services/rate_limit/` | Quotas |
+| `routes/auth_routes.py` | Signup, login, logout, `/api/auth/me` |
+| `routes/report_routes.py` | Enqueue report, read report, download PDF |
+| `routes/chat_routes.py` | Enqueue chat, read or clear history |
+| `services/jobs/worker.py` | Claim and run Groq |
+| `database/db.py` | Pool, named binds, test schema |
+| `database/models.py` | Tables |
+| `database/repository.py` | SQL and ownership |
+| `database/pdf_files.py` | PDF files on disk |
+| `scripts/issue_api_credential.py` | Issue or revoke a scoped key |

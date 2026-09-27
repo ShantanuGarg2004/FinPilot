@@ -65,6 +65,7 @@ def test_model_defaults_fall_back_when_env_absent(monkeypatch):
     monkeypatch.delenv("GROQ_CHAT_MODEL", raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
     monkeypatch.setenv("API_SECRET_KEY", "test-api-secret")
+    monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-the-api-key-32")
 
     reloaded = importlib.reload(config)
     try:

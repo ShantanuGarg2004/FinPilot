@@ -22,6 +22,7 @@ export function normaliseReport(payload) {
         ? Boolean(payload.ai_report)
         : Boolean(payload.pdf_ready),
     pdf_error: payload.pdf_error || null,
+    job: payload.job || null,
   };
 }
 

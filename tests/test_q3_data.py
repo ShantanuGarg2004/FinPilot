@@ -3,6 +3,7 @@ import json
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from config import Config
 from database.models import create_tables
 from database.pdf_files import file_name_for
@@ -80,9 +81,11 @@ def test_legacy_blob_is_copied_to_disk(tmp_path, monkeypatch):
         "INSERT INTO users (age, income, expenses, savings, risk_appetite, financial_goals) "
         "VALUES (30, 1, 1, 1, 'low', 'house')"
     )
+    conn.execute("ALTER TABLE reports ADD COLUMN pdf_blob BYTEA")
     conn.execute(
-        "INSERT INTO reports (user_id, health_json, ai_report, pdf_blob) VALUES (1, '{}', 'text', ?)",
-        (b"%PDF-legacy",),
+        "INSERT INTO reports (user_id, health_json, ai_report, pdf_blob) "
+        "VALUES (1, '{}', 'text', :blob)",
+        {"blob": b"%PDF-legacy"},
     )
     conn.commit()
     conn.close()
@@ -90,9 +93,21 @@ def test_legacy_blob_is_copied_to_disk(tmp_path, monkeypatch):
     create_tables()
 
     conn = db_mod.get_connection()
-    row = conn.execute("SELECT pdf_path, pdf_blob FROM reports WHERE user_id = 1").fetchone()
+    still_there = conn.execute(
+        """
+        SELECT 1 AS present
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'reports'
+          AND column_name = 'pdf_blob'
+        """
+    ).fetchone()
+    row = conn.execute(
+        "SELECT pdf_path FROM reports WHERE user_id = :user_id",
+        {"user_id": 1},
+    ).fetchone()
     conn.close()
-    assert row["pdf_blob"] is None
+    assert still_there is None
     assert row["pdf_path"] == file_name_for(1)
     stored = tmp_path / "pdfs" / file_name_for(1)
     assert stored.read_bytes() == b"%PDF-legacy"
@@ -105,10 +120,7 @@ def test_one_connection_per_request(tmp_path, monkeypatch):
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
-    headers = {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    headers = sign_in(client, "conn@example.com")
     created = client.post(
         "/api/profile",
         data=json.dumps(_profile()),
@@ -147,10 +159,7 @@ def test_profile_save_failure_is_structured(tmp_path, monkeypatch):
     res = client.post(
         "/api/profile",
         data=json.dumps(_profile()),
-        headers={
-            "X-API-Key": config.Config.API_SECRET_KEY,
-            "Content-Type": "application/json",
-        },
+        headers=sign_in(client),
     )
     assert res.status_code == 500
     assert res.get_json()["code"] == "server_error"
@@ -165,10 +174,7 @@ def test_download_reads_pdf_file(tmp_path, monkeypatch):
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
-    headers = {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    headers = sign_in(client, "pdf@example.com")
     created = client.post("/api/profile", data=json.dumps(_profile()), headers=headers)
     user_id = created.get_json()["user_id"]
 
@@ -187,16 +193,19 @@ def test_download_reads_pdf_file(tmp_path, monkeypatch):
         data=json.dumps({"user_id": user_id}),
         headers=headers,
     )
-    assert generated.status_code == 200
-    assert generated.get_json()["pdf_ready"] is True
+    assert generated.status_code == 202
+    from services.jobs.worker import process_once
+    assert process_once()["status"] == "succeeded"
+    stored = client.get(f"/api/report/{user_id}", headers=headers)
+    assert stored.status_code == 200
+    assert stored.get_json()["pdf_ready"] is True
 
     conn = db_mod.get_connection()
     row = conn.execute(
-        "SELECT pdf_path, pdf_blob FROM reports WHERE user_id = ?",
-        (user_id,),
+        "SELECT pdf_path FROM reports WHERE user_id = :user_id",
+        {"user_id": user_id},
     ).fetchone()
     conn.close()
-    assert row["pdf_blob"] is None
     assert row["pdf_path"] == file_name_for(user_id)
 
     downloaded = client.get(f"/api/download-report/{user_id}", headers=headers)

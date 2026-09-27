@@ -4,14 +4,23 @@ import os
 from database.db import DatabaseError
 import tempfile
 
-from flask import Blueprint, jsonify, send_file, request
+from flask import Blueprint, g, jsonify, send_file, request
 from marshmallow import ValidationError
 
 from schemas import generate_report_schema
+# The worker calls these through this module so tests can keep patching them here.
 from services.health_service import calculate_health_score
-from services.ai_service import generate_financial_report, http_status_for_ai_code
+from services.ai_service import generate_financial_report
 from services.pdf_service import generate_pdf_report
-from database.repository import get_user_by_id, load_pdf_bytes, load_report, save_report, store_pdf
+from database.repository import (
+    enqueue_report_job,
+    get_user_by_id,
+    latest_report_job,
+    load_pdf_bytes,
+    load_report,
+    save_report,
+    store_pdf,
+)
 from services.rate_limit.gateway import get_gateway
 
 logger = logging.getLogger(__name__)
@@ -33,18 +42,6 @@ def _load_report_from_db(user_id: int) -> dict | None:
 
 def _load_pdf_blob_from_db(user_id: int) -> bytes | None:
     return load_pdf_bytes(user_id)
-
-
-def _ai_failure_response(result):
-    """Map ask_gpt / generate_financial_report failure payload to HTTP response."""
-    if isinstance(result, dict):
-        code = result.get("code") or "upstream_error"
-        body = {
-            "error": result.get("error") or "AI generation failed",
-            "code": code,
-        }
-        return jsonify(body), http_status_for_ai_code(code)
-    return jsonify({"error": str(result), "code": "upstream_error"}), 500
 
 
 def _build_pdf_bytes(profile, health_data, ai_report) -> tuple[bool, bytes | str]:
@@ -93,10 +90,21 @@ def get_stored_report(user_id: int):
       404:
         description: No report found
     """
-    data = _load_report_from_db(user_id)
-    if not data:
+    if not get_user_by_id(user_id):
         return jsonify({"error": "No report found for this user", "code": "not_found"}), 404
-    return jsonify(data)
+
+    data = _load_report_from_db(user_id)
+    job = latest_report_job(user_id)
+    if not data and not job:
+        return jsonify({"error": "No report found for this user", "code": "not_found"}), 404
+
+    body = dict(data or {})
+    if job:
+        body["job"] = job
+        if job["status"] == "failed" and not data:
+            body["code"] = job.get("error_code") or "upstream_error"
+            body["error"] = "Report generation failed"
+    return jsonify(body)
 
 
 @report_bp.route("/generate-report", methods=["POST"])
@@ -119,12 +127,10 @@ def generate_report():
               type: integer
               example: 1
     responses:
-      200:
-        description: Report generated (pdf_ready may be false)
+      202:
+        description: Report job queued. A worker writes the report.
       400:
         description: Validation error or user not found
-      500:
-        description: Generation or storage error
     """
     raw = request.get_json(silent=True)
     if not raw:
@@ -141,60 +147,15 @@ def generate_report():
     if not profile:
         return jsonify({"error": f"User profile #{user_id} not found"}), 400
 
-    # 1. Health score
-    health_data = calculate_health_score(profile)
-    logger.info(
-        "generate_report: health score for user #%d = %d",
-        user_id,
-        health_data.get("score", 0),
-    )
-
-    # 2. AI report text
-    status, ai_report = generate_financial_report(profile, health_data)
-    if not status:
-        logger.error("generate_report: AI generation failed for user #%d", user_id)
-        return _ai_failure_response(ai_report)
-
-    # 3. Persist AI + health BEFORE PDF so a PDF failure never discards advisory text
-    try:
-        _save_report_to_db(user_id, health_data, ai_report, pdf_bytes=None)
-        logger.info("generate_report: advisory persisted (pre-PDF) for user #%d", user_id)
-    except DatabaseError:
-        logger.exception("generate_report: DB save failed for user #%d", user_id)
-        return jsonify({
-            "error": "Report generated but could not be saved to DB",
-            "code": "server_error",
-        }), 500
-
-    # 4. Best-effort PDF
-    pdf_ready = False
-    pdf_error = None
-    ok, pdf_result = _build_pdf_bytes(profile, health_data, ai_report)
-    if ok:
-        try:
-            _update_pdf_blob(user_id, pdf_result)
-            pdf_ready = True
-            logger.info("generate_report: PDF saved for user #%d", user_id)
-        except (DatabaseError, OSError):
-            logger.exception("generate_report: PDF file save failed for user #%d", user_id)
-            pdf_error = "PDF generated but could not be saved"
+    actor = getattr(g, "actor", None)
+    if actor is not None and actor.kind in ("user", "api_key"):
+        account_id = int(actor.credential)
     else:
-        pdf_error = str(pdf_result)
-        logger.error(
-            "generate_report: PDF soft-failed for user #%d — %s",
-            user_id,
-            pdf_error,
-        )
+        account_id = profile.get("account_id")
 
-    body = {
-        "user_id": user_id,
-        "health": health_data,
-        "ai_report": ai_report,
-        "pdf_ready": pdf_ready,
-    }
-    if pdf_error and not pdf_ready:
-        body["pdf_error"] = pdf_error
-    return jsonify(body)
+    job = enqueue_report_job(user_id, account_id)
+    logger.info("generate_report: job %s %s for user #%s", job["job_id"], job["status"], user_id)
+    return jsonify(job), 202
 
 
 @report_bp.route("/download-report/<int:user_id>", methods=["GET"])

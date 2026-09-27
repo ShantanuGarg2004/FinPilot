@@ -56,18 +56,14 @@ class AppConnection:
         self._conn = sa_conn
         self._tx = sa_conn.begin()
 
-    def execute(self, sql, params=()):
-        if isinstance(params, dict):
-            bind = params
-            statement = text(sql)
-        else:
-            if params is None:
-                params = ()
-            elif not isinstance(params, (list, tuple)):
-                params = (params,)
-            statement, bind = _qmarks(sql, params)
+    def execute(self, sql, params=None):
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            raise DatabaseError("SQL parameters must be a dict of names")
+        statement = text(sql)
         try:
-            result = self._conn.execute(statement, bind)
+            result = self._conn.execute(statement, params)
         except IntegrityError as exc:
             raise IntegrityConflict(str(exc.orig)) from exc
         except SQLAlchemyError as exc:
@@ -101,23 +97,16 @@ class AppConnection:
 
 
 def schema_name() -> str:
+    """Schema for this process.
+
+    Production stays on ``public``. A test sets ``DB_NAME`` to a throwaway
+    path so that case gets its own schema in the one PostgreSQL database.
+    That is test isolation, not a multi-tenant feature.
+    """
     if DB_NAME in ("finance.db", "public"):
         return "public"
     digest = hashlib.sha1(str(DB_NAME).encode()).hexdigest()[:16]
     return f"t_{digest}"
-
-
-def _qmarks(sql: str, params: tuple | list):
-    parts = sql.split("?")
-    if len(parts) - 1 != len(params):
-        raise DatabaseError("SQL placeholder count does not match the parameters")
-    bind = {}
-    out = parts[0]
-    for index, part in enumerate(parts[1:]):
-        key = f"p{index}"
-        out += f":{key}" + part
-        bind[key] = params[index]
-    return text(out), bind
 
 
 def _ident(name: str) -> str:
@@ -206,6 +195,26 @@ def open_connection() -> AppConnection:
 def get_connection() -> AppConnection:
     """Short-lived connection for startup and tests. Request handlers use connection()."""
     return open_connection()
+
+
+def ping_database() -> bool:
+    """SELECT 1 on a connection that is not the request's g.db_conn.
+
+    statement_timeout is local to this transaction so a hung query fails the
+    probe and the pooled connection keeps its normal timeout.
+    """
+    conn = None
+    try:
+        conn = get_connection()
+        conn.execute("SET LOCAL statement_timeout = '2s'")
+        row = conn.execute("SELECT 1 AS ok").fetchone()
+        return bool(row and row["ok"] == 1)
+    except Exception:
+        logger.warning("Application database health ping failed")
+        return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @contextmanager

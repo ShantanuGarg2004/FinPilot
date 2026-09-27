@@ -16,13 +16,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 os.environ.setdefault("GROQ_API_KEY", "test-groq-key")
 os.environ.setdefault("API_SECRET_KEY", "test-api-secret")
+os.environ.setdefault("SESSION_SECRET", "test-session-secret-not-the-api-key-32")
 os.environ.setdefault("GROQ_REPORT_MODEL", "openai/gpt-oss-120b")
 os.environ.setdefault("GROQ_CHAT_MODEL", "openai/gpt-oss-20b")
 os.environ.setdefault("GROQ_REPORT_MAX_TOKENS", "4096")
 os.environ.setdefault("GROQ_CHAT_MAX_TOKENS", "1500")
 os.environ.setdefault("GROQ_TIMEOUT_SECONDS", "90")
 os.environ.setdefault("WORKER_TIMEOUT_SECONDS", "120")
-os.environ.setdefault("SQLITE_BUSY_TIMEOUT_MS", "5000")
 os.environ.setdefault("RATELIMIT_STORAGE_URI", "memory://")
 os.environ.setdefault("RATELIMIT_ENABLED", "true")
 # Tests use in-memory Wave 1 store by default (no Postgres required).
@@ -38,3 +38,20 @@ os.environ.setdefault(
     "PDF_STORAGE_DIR",
     os.path.join(tempfile.gettempdir(), "finpilot-pytest-pdfs"),
 )
+
+
+def sign_in(client, email="person@example.com", password="correct-horse"):
+    """Create an account on this test client and keep its session cookie."""
+    import json
+
+    res = client.post(
+        "/api/auth/signup",
+        data=json.dumps({
+            "email": email,
+            "password": password,
+            "confirm_password": password,
+        }),
+        headers={"Content-Type": "application/json"},
+    )
+    assert res.status_code == 201, res.get_data(as_text=True)
+    return {"Content-Type": "application/json"}

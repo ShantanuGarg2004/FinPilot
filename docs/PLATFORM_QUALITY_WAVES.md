@@ -1,12 +1,10 @@
 # Platform quality waves
 
-**Status:** Plan only. Do not treat this file as an implementation order that has started.  
-**Date:** 2026-09-25  
-**Audience:** The next series of sprints, aimed at about 100 concurrent users.  
-**Inputs:** Architecture review (overall **6.4 / 10**) and a pass over UX paths, HTTP APIs, the rate-limit gateway, and `X-API-Key`.  
-**Companion:** `docs/IMPLEMENTATION_PLAN_RATE_LIMITER_AND_BOTTLENECKS.md` (Waves 0–3, already shipped). These quality waves start after that work.
+**Status (2026-09-27):** The tables below are the review record. They are not the running system. Waves Q1–Q6 and remediation issues 1–7 have shipped. The as-built description is `docs/ARCHITECTURE.md`. The capacity measurement is `docs/testing_reports/REMEDIATION_6_LOAD_TEST_REPORT.md`.
 
-Per-person authentication is a later phase. Until then, `X-API-Key` stays the deployment gate. Earlier waves must not invent a second user identity, and they must not keep assuming the API key is a person.
+**Written:** 2026-09-25, as a plan.  
+**Inputs at that time:** Architecture review (overall **6.4 / 10**) and a pass over UX paths, HTTP APIs, the rate-limit gateway, and `X-API-Key`.  
+**Companion:** `docs/IMPLEMENTATION_PLAN_RATE_LIMITER_AND_BOTTLENECKS.md` (Waves 0–3).
 
 ---
 

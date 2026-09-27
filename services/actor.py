@@ -1,4 +1,7 @@
-"""Who is calling. Today that is the shared deployment key, not a person."""
+"""Who is calling: a session cookie, or a scoped API credential.
+
+The docs password (API_SECRET_KEY) opens local Swagger only. It is not a data actor.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,28 +9,27 @@ from dataclasses import dataclass
 from flask import Request
 
 from config import Config
-from database.repository import get_account_by_id
+from database.repository import find_active_api_credential, get_account_by_id
 from services.rate_limit.keys import hash_api_key
 from services.sessions import COOKIE_NAME, read_token
 
 
 @dataclass(frozen=True)
 class Actor:
-    """anonymous, api_key, or later user. Request code should not grow a second identity."""
+    """anonymous, user, api_key, or docs. Request code should not grow a second identity."""
 
     kind: str
     credential: str = ""
+    scopes: tuple[str, ...] = ()
 
     def rate_limit_subject(self) -> str:
-        """Bucket identity for the rate-limit gateway.
-
-        Today this is a hash of the deployment API key. When per-person auth
-        exists, a browser actor (kind ``user``) returns the account id here.
-        Server-to-server calls keep the key hash.
-        """
-        if self.kind == "user" and self.credential:
+        """One bucket per account, whether the caller sent a cookie or a scoped key."""
+        if self.kind in ("user", "api_key") and str(self.credential).isdigit():
             return f"acct:{self.credential}"
         return hash_api_key(self.credential)
+
+    def has_scope(self, scope: str) -> bool:
+        return scope in self.scopes
 
 
 def presented_credential(req: Request) -> str:
@@ -62,9 +64,18 @@ def resolve_actor(req: Request) -> Actor | None:
 
     key = presented_credential(req)
     if key:
-        if key == Config.API_SECRET_KEY:
+        credential = find_active_api_credential(key)
+        if credential is not None:
             g.auth_error = None
-            return Actor(kind="api_key", credential=key)
+            return Actor(
+                kind="api_key",
+                credential=str(credential["account_id"]),
+                scopes=credential["scopes"],
+            )
+        from services.rate_limit.gateway import is_public_docs
+        if is_public_docs(req.path) and key == Config.API_SECRET_KEY:
+            g.auth_error = None
+            return Actor(kind="docs")
         g.auth_error = "unauthorized"
         return None
 

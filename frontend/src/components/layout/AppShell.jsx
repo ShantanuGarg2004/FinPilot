@@ -3,7 +3,7 @@ import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import { PAGE_TITLES } from "./nav";
 
-export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, onNewProfile, fullBleed = false, accountEmail, onSignOut, children }) {
+export default function AppShell({ activePage, path, onNavigate, hasUser, activeGoal, onNewProfile, fullBleed = false, accountEmail, onSignOut, children }) {
   const [open, setOpen] = useState(false);
 
   const navigate = useCallback(
@@ -26,11 +26,11 @@ export default function AppShell({ activePage, onNavigate, hasUser, activeGoal, 
 
       {fullBleed ? (
         <main className="lg:ml-56 pt-[var(--app-bar)] min-h-dvh lg:h-dvh lg:overflow-hidden overflow-x-hidden">
-          <div key={activePage} className="page-enter min-h-0">{children}</div>
+          <div key={path || activePage} className="page-enter min-h-0">{children}</div>
         </main>
       ) : (
         <main className="lg:ml-56 pt-[var(--app-bar)] min-h-dvh px-4 pb-xl sm:px-gutter md:px-lg">
-          <div key={activePage} className="page-enter max-w-container-max mx-auto space-y-lg pt-lg md:pt-2xl">{children}</div>
+          <div key={path || activePage} className="page-enter max-w-container-max mx-auto space-y-lg pt-lg md:pt-2xl">{children}</div>
         </main>
       )}
     </div>

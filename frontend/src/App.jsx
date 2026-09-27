@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiFetch } from "./config/api";
+import { normalizePath, pathForPage, resolveRoute } from "./lib/routes";
 import LoginPage from "./pages/LoginPage";
 import { ToastProvider } from "./components/Toast";
 import { useToast } from "./components/toast-context";
@@ -35,13 +36,34 @@ function writeStoredUserId(id) {
   }
 }
 
-function FinPilotApp({ account, onSignOut }) {
+function useAppPath() {
+  const [path, setPath] = useState(() => normalizePath(window.location.pathname));
+
+  useEffect(() => {
+    const onPop = () => setPath(normalizePath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const go = useCallback((page, { replace = false } = {}) => {
+    const next = pathForPage(page);
+    const current = normalizePath(window.location.pathname);
+    if (next !== current) {
+      if (replace) window.history.replaceState(null, "", next);
+      else window.history.pushState(null, "", next);
+    }
+    setPath(next);
+  }, []);
+
+  return [path, go];
+}
+
+function FinPilotApp({ account, onSignOut, path, go }) {
   const showToast = useToast();
   const profiles = useProfiles(showToast);
   const { users, remove } = profiles;
 
   const [activeUserId, setActiveUserId] = useState(readStoredUserId);
-  const [activePage, setActivePage] = useState(() => (readStoredUserId() != null ? "dashboard" : "profile"));
 
   // Persist selection; ignore stale ids once the profile list has loaded.
   const activeUser = useMemo(
@@ -58,26 +80,27 @@ function FinPilotApp({ account, onSignOut }) {
 
   const activeGoal = effectiveUser ? profileTitle(effectiveUser) : "";
 
-  const navigate = useCallback((page) => setActivePage(page), []);
+  const navigate = useCallback((page) => go(page), [go]);
 
   const selectUser = useCallback((id, list) => {
     setActiveUserId(id);
     writeStoredUserId(id);
     if (id) {
       const found = (list || users).find((u) => u.id === id);
-      setActivePage((p) => (p === "profile" ? "dashboard" : p));
+      if (path === "/profile") go("/dashboard");
       return found;
     }
-  }, [users]);
+    return undefined;
+  }, [users, path, go]);
 
   const handleCreated = useCallback(
     async (userId) => {
       await profiles.reload();
       setActiveUserId(userId);
       writeStoredUserId(userId);
-      setActivePage("dashboard");
+      go("/dashboard");
     },
-    [profiles]
+    [profiles, go]
   );
 
   const handleRemove = useCallback(
@@ -86,21 +109,27 @@ function FinPilotApp({ account, onSignOut }) {
       if (id === activeUserId) {
         setActiveUserId(null);
         writeStoredUserId(null);
-        setActivePage("profile");
+        go("/profile", { replace: true });
       }
     },
-    [remove, activeUserId]
+    [remove, activeUserId, go]
   );
 
-  const newProfile = useCallback(() => setActivePage("profile"), []);
+  const newProfile = useCallback(() => go("/profile"), [go]);
 
   const profilesForPage = { ...profiles, remove: handleRemove };
   const hasUser = !!effectiveUserId;
-  const page = !hasUser && activePage !== "profile" ? "profile" : activePage;
+  const decision = resolveRoute({ signedIn: true, path, profileId: effectiveUserId });
+  const page = decision.screen;
+
+  useEffect(() => {
+    if (decision.redirect) go(decision.redirect, { replace: true });
+  }, [decision.redirect, go]);
 
   return (
     <AppShell
       activePage={page}
+      path={decision.redirect || path}
       onNavigate={navigate}
       hasUser={hasUser}
       activeGoal={activeGoal}
@@ -136,6 +165,7 @@ function FinPilotApp({ account, onSignOut }) {
 export default function App() {
   const [account, setAccount] = useState(null);
   const [ready, setReady] = useState(false);
+  const [path, go] = useAppPath();
 
   useEffect(() => {
     let cancelled = false;
@@ -164,19 +194,27 @@ export default function App() {
       /* cookie clear is enough */
     }
     try {
-      sessionStorage.removeItem("finpilot.activeUserId");
+      sessionStorage.removeItem(ACTIVE_USER_KEY);
     } catch {
       /* private mode */
     }
+    go("/", { replace: true });
     setAccount(null);
-  }, []);
+  }, [go]);
+
+  const signedOut = resolveRoute({ signedIn: false, path, profileId: null });
+
+  useEffect(() => {
+    if (!ready || account) return;
+    if (signedOut.redirect) go(signedOut.redirect, { replace: true });
+  }, [ready, account, signedOut.redirect, go]);
 
   return (
     <ToastProvider>
       {!ready ? null : (
         <div key={account ? "app" : "landing"} className="view-enter">
           {account ? (
-            <FinPilotApp account={account} onSignOut={signOut} />
+            <FinPilotApp account={account} onSignOut={signOut} path={path} go={go} />
           ) : (
             <LoginPage onSignedIn={setAccount} />
           )}

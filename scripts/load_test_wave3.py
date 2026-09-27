@@ -7,10 +7,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from scripts.http_session import data_headers, login_cookie
 
 
 def percentile(values: list[float], pct: float) -> float | None:
@@ -46,8 +49,8 @@ def run_burst(request_fn, total: int, concurrency: int) -> dict:
     }
 
 
-def _http_get(url: str, api_key: str):
-    req = urllib.request.Request(url, headers={"X-API-Key": api_key})
+def _http_get(url: str, cookie: str):
+    req = urllib.request.Request(url, headers=data_headers(cookie))
     t0 = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -60,17 +63,30 @@ def _http_get(url: str, api_key: str):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FinPilot Wave 3 read burst")
     parser.add_argument("--base-url", default="http://127.0.0.1:5000")
-    parser.add_argument("--api-key", default="dev-key")
     parser.add_argument("--path", default="/api/health")
     parser.add_argument("--total", type=int, default=80)
     parser.add_argument("--concurrency", type=int, default=20)
     parser.add_argument("--max-p95-ms", type=float, default=200)
     args = parser.parse_args(argv)
 
+    email = os.getenv("BOOTSTRAP_ACCOUNT_EMAIL", "")
+    password = os.getenv("BOOTSTRAP_ACCOUNT_PASSWORD", "")
+    if not email or not password:
+        print("Set BOOTSTRAP_ACCOUNT_EMAIL and BOOTSTRAP_ACCOUNT_PASSWORD")
+        return 2
+    try:
+        cookie = login_cookie(args.base_url, email, password)
+    except urllib.error.HTTPError as exc:
+        print("login failed", exc.code)
+        return 2
+    except urllib.error.URLError as exc:
+        print(f"API unreachable at {args.base_url}: {exc}")
+        return 2
+
     url = args.base_url.rstrip("/") + args.path
 
     def call():
-        return _http_get(url, args.api_key)
+        return _http_get(url, cookie)
 
     try:
         probe_status, _ = call()

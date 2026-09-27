@@ -85,7 +85,7 @@ def test_expired_cookie_is_session_expired(tmp_path, monkeypatch):
     assert res.get_json()["code"] == "session_expired"
 
 
-def test_api_key_still_sees_every_profile(tmp_path, monkeypatch):
+def test_api_key_cannot_list_profiles(tmp_path, monkeypatch):
     client = _app(tmp_path, monkeypatch, "key.db")
     _signup(client, "a@example.com")
     client.post(
@@ -95,8 +95,8 @@ def test_api_key_still_sees_every_profile(tmp_path, monkeypatch):
     )
     client.post("/api/auth/logout")
     listed = client.get("/api/users", headers={"X-API-Key": config.Config.API_SECRET_KEY})
-    assert listed.status_code == 200
-    assert len(listed.get_json()["users"]) == 1
+    assert listed.status_code == 401
+    assert listed.get_json()["code"] == "unauthorized"
 
 
 def test_swagger_lists_every_api(tmp_path, monkeypatch):

@@ -10,6 +10,7 @@ import pytest
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 
 
@@ -32,8 +33,7 @@ def api_client(tmp_path, monkeypatch):
     gw.policies.llm_report_user = type(gw.policies.llm_report_user)("llm_report", 100, 3600, True)
 
     client = app.test_client()
-    headers = {"X-API-Key": config.Config.API_SECRET_KEY, "Content-Type": "application/json"}
-    return client, headers
+    return client, sign_in(client)
 
 
 def test_health_is_public_and_ok(api_client):
@@ -63,6 +63,7 @@ def test_get_report_missing_returns_404_not_throttle(api_client):
 
 def test_unauthorized_returns_structured_401(api_client):
     client, _ = api_client
+    client.delete_cookie("finpilot_session")
     res = client.get("/api/users", headers={"X-API-Key": "wrong"})
     assert res.status_code == 401
     body = res.get_json()
@@ -118,12 +119,26 @@ def test_generate_report_returns_structured_429_when_exceeded(api_client, monkey
     monkeypatch.setattr(rr, "generate_pdf_report", _fake_pdf)
     monkeypatch.setattr(rr, "_save_report_to_db", lambda *a, **k: None)
 
+    created = client.post(
+        "/api/profile",
+        data=json.dumps({
+            "age": 30,
+            "income": 90000,
+            "expenses": 50000,
+            "savings": 20000,
+            "risk_appetite": "medium",
+            "financial_goals": "House",
+        }),
+        headers=headers,
+    )
+    user_id = created.get_json()["user_id"]
+
     # Insert a real user id path uses get_user_by_id mock; body still needs user_id.
     statuses = []
     for _ in range(5):
         res = client.post(
             "/api/generate-report",
-            data=json.dumps({"user_id": 1}),
+            data=json.dumps({"user_id": user_id}),
             headers=headers,
         )
         statuses.append(res.status_code)

@@ -6,6 +6,7 @@ import pytest
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 from services.rate_limit.policies import PolicyRegistry
 
@@ -20,10 +21,8 @@ def client(tmp_path, monkeypatch):
 
     app = create_app()
     app.config["TESTING"] = True
-    return app.test_client(), {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    client = app.test_client()
+    return client, sign_in(client)
 
 
 def test_health_reports_wave1_backend(client):
@@ -87,15 +86,29 @@ def test_generate_report_rate_limited_with_route_class(client, monkeypatch):
     monkeypatch.setattr(rr, "generate_pdf_report", _fake_pdf)
     monkeypatch.setattr(rr, "_save_report_to_db", lambda *a, **k: None)
 
+    created = c.post(
+        "/api/profile",
+        data=json.dumps({
+            "age": 30,
+            "income": 1,
+            "expenses": 1,
+            "savings": 1,
+            "risk_appetite": "low",
+            "financial_goals": "house fund",
+        }),
+        headers=headers,
+    )
+    user_id = created.get_json()["user_id"]
+
     codes = []
     bodies = []
     for _ in range(5):
-        res = c.post("/api/generate-report", data=json.dumps({"user_id": 1}), headers=headers)
+        res = c.post("/api/generate-report", data=json.dumps({"user_id": user_id}), headers=headers)
         codes.append(res.status_code)
         if res.status_code == 429:
             bodies.append(res.get_json())
     assert 429 in codes
-    assert any(c == 200 for c in codes)
+    assert any(c == 202 for c in codes)
     assert bodies[0]["code"] == "rate_limit_exceeded"
     assert bodies[0]["route_class"] == "llm_report"
     assert "Retry-After" in res.headers or bodies[0].get("retry_after") is not None

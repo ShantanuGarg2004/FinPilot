@@ -46,8 +46,23 @@ def remove_pdf(stored_name: str | None) -> None:
         logger.warning("could not delete PDF %s", path)
 
 
+def _reports_has_blob_column(conn) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 AS present
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'reports'
+          AND column_name = 'pdf_blob'
+        """
+    ).fetchone()
+    return row is not None
+
+
 def export_legacy_blobs(conn) -> int:
     """Copy leftover pdf_blob bytes to disk once, then clear the blob."""
+    if not _reports_has_blob_column(conn):
+        return 0
     rows = conn.execute(
         """
         SELECT user_id, pdf_blob FROM reports
@@ -63,8 +78,8 @@ def export_legacy_blobs(conn) -> int:
             logger.exception("could not export PDF for user #%s", row["user_id"])
             continue
         conn.execute(
-            "UPDATE reports SET pdf_path = ?, pdf_blob = NULL WHERE user_id = ?",
-            (name, row["user_id"]),
+            "UPDATE reports SET pdf_path = :pdf_path, pdf_blob = NULL WHERE user_id = :user_id",
+            {"pdf_path": name, "user_id": row["user_id"]},
         )
         moved += 1
     if moved:

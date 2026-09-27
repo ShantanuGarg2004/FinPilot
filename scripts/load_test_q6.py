@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from scripts.http_session import data_headers, login_cookie
+
 
 def percentile(values: list[float], pct: float) -> float | None:
     if not values:
@@ -25,11 +27,11 @@ def percentile(values: list[float], pct: float) -> float | None:
     return ordered[low] * (1 - weight) + ordered[high] * weight
 
 
-def _request(method: str, url: str, api_key: str, body: dict | None = None, headers: dict | None = None):
+def _request(method: str, url: str, cookie: str, body: dict | None = None, headers: dict | None = None):
     data = None if body is None else json.dumps(body).encode()
-    hdrs = {"X-API-Key": api_key}
-    if body is not None:
-        hdrs["Content-Type"] = "application/json"
+    hdrs = data_headers(cookie)
+    if body is None:
+        hdrs.pop("Content-Type", None)
     if headers:
         hdrs.update(headers)
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
@@ -63,21 +65,30 @@ def _summarize(name: str, rows: list[tuple[int, float, bytes]]) -> dict:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="FinPilot Q6 mixed load")
     parser.add_argument("--base-url", default="http://127.0.0.1:5000")
-    parser.add_argument("--api-key", default=os.getenv("API_SECRET_KEY", ""))
     parser.add_argument("--reads", type=int, default=80)
     parser.add_argument("--chats", type=int, default=20)
     parser.add_argument("--concurrency", type=int, default=20)
     parser.add_argument("--max-p95-ms", type=float, default=200)
     args = parser.parse_args(argv)
-    if not args.api_key:
-        print("Set API_SECRET_KEY or pass --api-key")
+    email = os.getenv("BOOTSTRAP_ACCOUNT_EMAIL", "")
+    password = os.getenv("BOOTSTRAP_ACCOUNT_PASSWORD", "")
+    if not email or not password:
+        print("Set BOOTSTRAP_ACCOUNT_EMAIL and BOOTSTRAP_ACCOUNT_PASSWORD")
         return 2
     base = args.base_url.rstrip("/")
+    try:
+        cookie = login_cookie(base, email, password)
+    except urllib.error.HTTPError as exc:
+        print("login failed", exc.code)
+        return 2
+    except urllib.error.URLError as exc:
+        print("API unreachable", exc)
+        return 2
 
     created = _request(
         "POST",
         base + "/api/profile",
-        args.api_key,
+        cookie,
         {
             "age": 30,
             "income": 100000,
@@ -93,13 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     user_id = json.loads(created[2])["user_id"]
 
     def read_call():
-        return _request("GET", base + "/api/users", args.api_key)
+        return _request("GET", base + "/api/users", cookie)
 
     def chat_call():
         return _request(
             "POST",
             base + "/api/chat",
-            args.api_key,
+            cookie,
             {"user_id": user_id, "query": "Where should I keep an emergency fund?"},
         )
 
@@ -126,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
         return _request(
             "POST",
             base + "/api/chat",
-            args.api_key,
+            cookie,
             {"user_id": user_id, "query": "slow"},
             headers={"X-FinPilot-Stub-Delay-Ms": "1500"},
         )
@@ -135,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         slow = pool.submit(slow_chat)
         time.sleep(0.2)
         for _ in range(5):
-            health_codes.append(_request("GET", base + "/api/health", args.api_key)[0])
+            health_codes.append(_request("GET", base + "/api/health", cookie)[0])
         slow.result()
     print(json.dumps({"health_during_slow_chat": health_codes}))
 

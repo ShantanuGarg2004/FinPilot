@@ -8,8 +8,8 @@ import database.db as db_mod
 from app import create_app
 from services.actor import Actor
 from services.rate_limit import gateway as gw_mod
-from services.rate_limit.keys import hash_api_key
 from services.rate_limit.policies import PolicyRegistry
+from conftest import sign_in
 
 
 def _app(tmp_path, monkeypatch, name="q4.db"):
@@ -20,13 +20,6 @@ def _app(tmp_path, monkeypatch, name="q4.db"):
     app = create_app()
     app.config["TESTING"] = True
     return app
-
-
-def _headers():
-    return {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
 
 
 def _profile(goals="house"):
@@ -40,11 +33,11 @@ def _profile(goals="house"):
     }
 
 
-def test_rate_limit_subject_is_key_hash_until_accounts_exist():
-    actor = Actor(kind="api_key", credential="secret-one")
-    assert actor.rate_limit_subject() == hash_api_key("secret-one")
-    later = Actor(kind="user", credential="42")
-    assert later.rate_limit_subject() == "acct:42"
+def test_rate_limit_subject_is_the_account_for_a_person_and_a_scoped_key():
+    person = Actor(kind="user", credential="42")
+    scoped = Actor(kind="api_key", credential="42", scopes=("data",))
+    assert person.rate_limit_subject() == "acct:42"
+    assert scoped.rate_limit_subject() == person.rate_limit_subject()
 
 
 def test_per_profile_rules_cover_chat_generate_goal_and_delete():
@@ -88,7 +81,7 @@ def test_empty_cors_fails_closed_in_production(monkeypatch):
 def test_goal_ceiling_is_per_profile(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch, "goal.db")
     client = app.test_client()
-    headers = _headers()
+    headers = sign_in(client, "goal@example.com")
     created = client.post("/api/profile", data=json.dumps(_profile()), headers=headers)
     user_id = created.get_json()["user_id"]
     other = client.post("/api/profile", data=json.dumps(_profile("car")), headers=headers)
@@ -116,7 +109,7 @@ def test_goal_ceiling_is_per_profile(tmp_path, monkeypatch):
 def test_delete_ceiling_is_per_profile(tmp_path, monkeypatch):
     app = _app(tmp_path, monkeypatch, "del.db")
     client = app.test_client()
-    headers = _headers()
+    headers = sign_in(client, "goal@example.com")
     created = client.post("/api/profile", data=json.dumps(_profile()), headers=headers)
     user_id = created.get_json()["user_id"]
 

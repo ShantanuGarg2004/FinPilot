@@ -44,5 +44,16 @@ An account with no profiles yet sees “You are signed in and have no profiles y
 | `npm run build` | Production bundle |
 | `npm run preview` | Serves the production bundle |
 | `npm run lint` | ESLint |
+| `npm test` | Route guard and report-poll decisions. No Flask and no browser. |
+
+`npm test` runs `node --test` on `src/lib/routes.test.js` and `src/lib/reportPoll.test.js`. Those files import plain functions. They do not start Vite.
+
+An optional browser check, not part of `npm test` and not required in CI, needs the dev server already running:
+
+```bash
+node scripts/landing_smoke.mjs
+```
+
+It opens Sign in and checks the dialog sits in the viewport, then opens `/dashboard` while signed out and checks the landing page is still showing. It does not compare screenshots.
 
 The proxy is only in the Vite dev server. A built bundle still calls `VITE_API_URL`. For a deployed site that must be the API’s public `/api` prefix, and the API `CORS_ORIGINS` list must include that site.

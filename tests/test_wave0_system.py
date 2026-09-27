@@ -12,6 +12,7 @@ import pytest
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 
 
@@ -31,10 +32,8 @@ def system_client(tmp_path, monkeypatch):
     gw.policies.llm_report = type(gw.policies.llm_report)("llm_report", 2, 60, False)
     gw.policies.llm_report_user = type(gw.policies.llm_report_user)("llm_report", 100, 3600, True)
 
-    return app.test_client(), {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    client = app.test_client()
+    return client, sign_in(client)
 
 
 def _create_user(client, headers):
@@ -114,8 +113,8 @@ def test_system_llm_quota_independent_of_reads(system_client, monkeypatch):
         )
         codes.append(res.status_code)
     assert 429 in codes
-    # At least one generate should have succeeded before throttle.
-    assert any(c == 200 for c in codes)
+    # At least one generate should have been accepted before throttle.
+    assert any(c == 202 for c in codes)
 
 
 def test_system_disabled_ratelimit_allows_burst(tmp_path, monkeypatch):
@@ -127,10 +126,7 @@ def test_system_disabled_ratelimit_allows_burst(tmp_path, monkeypatch):
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
-    headers = {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    headers = sign_in(client)
 
     import routes.report_routes as rr
 
@@ -162,9 +158,22 @@ def test_system_disabled_ratelimit_allows_burst(tmp_path, monkeypatch):
     monkeypatch.setattr(rr, "generate_pdf_report", _fake_pdf)
     monkeypatch.setattr(rr, "_save_report_to_db", lambda *a, **k: None)
 
+    created = client.post(
+        "/api/profile",
+        data=json.dumps({
+            "age": 30,
+            "income": 1,
+            "expenses": 1,
+            "savings": 1,
+            "risk_appetite": "low",
+            "financial_goals": "house fund",
+        }),
+        headers=headers,
+    )
+    user_id = created.get_json()["user_id"]
     codes = [
-        client.post("/api/generate-report", data=json.dumps({"user_id": 1}), headers=headers).status_code
+        client.post("/api/generate-report", data=json.dumps({"user_id": user_id}), headers=headers).status_code
         for _ in range(5)
     ]
     assert 429 not in codes
-    assert all(c == 200 for c in codes)
+    assert all(c == 202 for c in codes)

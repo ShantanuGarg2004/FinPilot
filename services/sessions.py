@@ -8,7 +8,7 @@ MAX_AGE_SECONDS = 12 * 60 * 60
 
 
 def _serializer() -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(Config.API_SECRET_KEY, salt="finpilot-session")
+    return URLSafeTimedSerializer(Config.SESSION_SECRET, salt="finpilot-session")
 
 
 def issue_token(account_id: int, session_version: int) -> str:

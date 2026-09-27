@@ -45,13 +45,16 @@ class Config:
     # In-flight LLM calls the process tier should absorb, plus spare workers for reads.
     PEAK_CONCURRENT_LLM = _env_int("PEAK_CONCURRENT_LLM", 4)
     WORKER_HEADROOM = _env_int("WORKER_HEADROOM", 2)
-    SQLITE_BUSY_TIMEOUT_MS = _env_int("SQLITE_BUSY_TIMEOUT_MS", 5000)
+    # Off by default. A normal start does not open a SQLite file.
+    SQLITE_IMPORT = _env_bool("SQLITE_IMPORT", False)
     # Q3: PDF bytes live on disk. The row stores the file name, not the blob.
     _ROOT = os.path.dirname(os.path.abspath(__file__))
     PDF_STORAGE_DIR = os.getenv("PDF_STORAGE_DIR", os.path.join(_ROOT, "data", "pdfs"))
 
-    # Secret key clients must send as X-API-Key header to reach the API.
+    # Secret key scripts and Swagger send as X-API-Key. Not the session signer.
     API_SECRET_KEY = os.getenv("API_SECRET_KEY")
+    # Signs finpilot_session. Must differ from API_SECRET_KEY.
+    SESSION_SECRET = os.getenv("SESSION_SECRET")
 
     # Rate limiting (Wave 0 Flask-Limiter + Wave 1 SQL store prep)
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
@@ -94,11 +97,19 @@ class Config:
 
     @classmethod
     def validate(cls):
-        missing = [k for k in ("GROQ_API_KEY", "API_SECRET_KEY") if not getattr(cls, k)]
+        missing = [k for k in ("GROQ_API_KEY", "API_SECRET_KEY", "SESSION_SECRET") if not getattr(cls, k)]
         if missing:
             raise EnvironmentError(
                 f"Missing required environment variables: {', '.join(missing)}\n"
                 "Add them to your .env file."
+            )
+        if len(cls.SESSION_SECRET) < 32:
+            raise EnvironmentError(
+                "SESSION_SECRET must be at least 32 characters."
+            )
+        if cls.SESSION_SECRET == cls.API_SECRET_KEY:
+            raise EnvironmentError(
+                "SESSION_SECRET must be different from API_SECRET_KEY."
             )
         if not cls.APP_DATABASE_URL:
             raise EnvironmentError(

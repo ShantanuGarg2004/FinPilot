@@ -5,9 +5,9 @@ from flask import Blueprint, g, jsonify, request
 from marshmallow import ValidationError
 from werkzeug.security import check_password_hash
 
-from database.repository import get_account_by_email, insert_account
+from database.repository import bump_session_version, get_account_by_email, insert_account
 from schemas import login_schema, passwords_match, signup_schema
-from services.sessions import attach_cookie, clear_cookie
+from services.sessions import COOKIE_NAME, attach_cookie, clear_cookie, read_token
 
 logger = logging.getLogger(__name__)
 auth_bp = Blueprint("auth", __name__)
@@ -147,6 +147,10 @@ def logout():
         description: Signed out
     """
     resp = jsonify({"message": "Signed out"})
+    token = request.cookies.get(COOKIE_NAME, "")
+    payload = read_token(token) if token else None
+    if payload and payload.get("account_id") is not None:
+        bump_session_version(int(payload["account_id"]))
     return clear_cookie(resp)
 
 

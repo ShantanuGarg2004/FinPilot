@@ -5,6 +5,7 @@ import app as app_mod
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 from services.rate_limit import policies as pol_mod
 from services.rate_limit.policies import PolicyRegistry
@@ -65,10 +66,8 @@ def test_unmapped_api_route_is_denied(tmp_path, monkeypatch):
         return {"ok": True}
 
     client = app.test_client()
-    res = client.get(
-        "/api/not-a-real-route",
-        headers={"X-API-Key": config.Config.API_SECRET_KEY},
-    )
+    sign_in(client, "unmapped@example.com")
+    res = client.get("/api/not-a-real-route")
     assert res.status_code == 429
     body = res.get_json()
     assert body["code"] == "rate_policy_missing"
@@ -86,10 +85,7 @@ def test_download_rebuild_does_not_use_read_report_bucket(tmp_path, monkeypatch)
     gw.policies.pdf_rebuild = type(gw.policies.pdf_rebuild)("pdf_rebuild", 1, 60, False)
 
     client = app.test_client()
-    headers = {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
+    headers = sign_in(client, "q1@example.com")
     created = client.post(
         "/api/profile",
         data=json.dumps({
@@ -116,7 +112,9 @@ def test_download_rebuild_does_not_use_read_report_bucket(tmp_path, monkeypatch)
         "/api/generate-report",
         data=json.dumps({"user_id": user_id}),
         headers=headers,
-    ).status_code == 200
+    ).status_code == 202
+    from services.jobs.worker import process_once
+    assert process_once()["status"] == "succeeded"
 
     # Exhaust the report-read bucket. Download must still be allowed once.
     assert client.get(f"/api/report/{user_id}", headers=headers).status_code == 200

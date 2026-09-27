@@ -4,6 +4,7 @@ import json
 import config
 import database.db as db_mod
 from app import create_app
+from conftest import sign_in
 from services.rate_limit import gateway as gw_mod
 
 
@@ -15,11 +16,7 @@ def _client(tmp_path, monkeypatch):
     app = create_app()
     app.config["TESTING"] = True
     client = app.test_client()
-    headers = {
-        "X-API-Key": config.Config.API_SECRET_KEY,
-        "Content-Type": "application/json",
-    }
-    return client, headers
+    return client, sign_in(client)
 
 
 def _profile(client, headers):
@@ -72,11 +69,41 @@ def test_failed_chat_is_504_and_not_stored(tmp_path, monkeypatch):
         data=json.dumps({"user_id": user_id, "query": "hello"}),
         headers=headers,
     )
-    assert res.status_code == 504
-    assert res.get_json()["code"] == "upstream_timeout"
+    assert res.status_code == 202
+    assert res.get_json()["status"] == "queued"
+    from services.jobs.worker import process_once
+    finished = process_once()
+    assert finished["status"] == "failed"
+    assert finished["error_code"] == "upstream_timeout"
     history = client.get(f"/api/chat/history/{user_id}", headers=headers)
     assert history.status_code == 200
     assert history.get_json()["history"] == []
+    assert history.get_json()["job"]["status"] == "failed"
+
+
+def test_chat_enqueue_is_answered_by_the_worker(tmp_path, monkeypatch):
+    client, headers = _client(tmp_path, monkeypatch)
+    user_id = _profile(client, headers)
+    import routes.chat_routes as chat_routes
+    from services.jobs.worker import process_once
+
+    monkeypatch.setattr(
+        chat_routes,
+        "chat_with_advisor",
+        lambda *a, **k: (True, "Keep it in cash."),
+    )
+    res = client.post(
+        "/api/chat",
+        data=json.dumps({"user_id": user_id, "query": "emergency fund"}),
+        headers=headers,
+    )
+    assert res.status_code == 202
+    finished = process_once()
+    assert finished["status"] == "succeeded"
+    history = client.get(f"/api/chat/history/{user_id}", headers=headers)
+    body = history.get_json()
+    assert [row["message"] for row in body["history"]] == ["emergency fund", "Keep it in cash."]
+    assert "job" not in body
 
 
 def test_delete_profile_removes_user(tmp_path, monkeypatch):

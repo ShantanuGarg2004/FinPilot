@@ -3,6 +3,37 @@ import { apiFetch } from "../config/api";
 import { formatApiErrorMessage, toastTypeForError } from "../lib/apiErrors";
 import { invalidateChat, loadChatHistory, peekChat, setChatCache } from "../lib/chatStore";
 
+const POLL_MS = 1000;
+const POLL_BUDGET_MS = 120000;
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForReply(userId, ticket, epochRef) {
+  const started = Date.now();
+  while (epochRef.current === ticket && Date.now() - started < POLL_BUDGET_MS) {
+    const data = await apiFetch(`/chat/history/${userId}`);
+    if (epochRef.current !== ticket) return null;
+    if (data?.job?.status === "failed") {
+      const err = new Error("Chat failed");
+      err.code = data.job.error_code || "upstream_error";
+      err.status = 502;
+      throw err;
+    }
+    const rows = data?.history || [];
+    if (rows.length && rows[rows.length - 1]?.role === "ai") return rows;
+    await sleep(POLL_MS);
+  }
+  if (epochRef.current !== ticket) return null;
+  const err = new Error("Chat timed out");
+  err.code = "upstream_timeout";
+  err.status = 504;
+  throw err;
+}
+
 function notify(showToast, err, fallback) {
   const type = toastTypeForError(err);
   if (!type) return;
@@ -79,16 +110,15 @@ export default function useChat(userId, showToast) {
       setMessages((m) => [...m, { role: "user", message: q }]);
       setSending(true);
       try {
-        const data = await apiFetch("/chat", {
+        await apiFetch("/chat", {
           method: "POST",
           body: JSON.stringify({ user_id: userId, query: q }),
         });
         if (ticket !== epoch.current) return;
-        setMessages((m) => {
-          const next = [...m, { role: "ai", message: data.response }];
-          setChatCache(userId, next);
-          return next;
-        });
+        const reply = await waitForReply(userId, ticket, epoch);
+        if (ticket !== epoch.current || reply == null) return;
+        setMessages(reply);
+        setChatCache(userId, reply);
       } catch (e) {
         if (ticket !== epoch.current) return;
         setMessages((m) => (m.length && m[m.length - 1]?.message === q ? m.slice(0, -1) : m));
