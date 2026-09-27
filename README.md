@@ -155,7 +155,7 @@ flowchart LR
    `finpilot`. Rate-limit counters live in `finpilot_ratelimit`.
 
 > The request path, the worker, and the two databases are written up in
-> [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+> [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
 
 ---
 
@@ -234,7 +234,11 @@ FinPilot/
 ├── tests/                     # Pytest. Groq is mocked. App DB is finpilot_test.
 ├── conftest.py                # Pytest bootstrap (sys.path + deterministic test env)
 └── docs/
-    └── ARCHITECTURE.md        # As-built request path, worker, and databases
+    ├── README.md              # Which folder holds which documents
+    ├── architecture/          # How the running system works
+    ├── planning/              # Plans and the order work was meant to ship
+    ├── analysis/              # Reviews and the issue 6 measurement write-up
+    └── execution/             # What was built, and testing_reports/
 ```
 
 ---
@@ -303,7 +307,7 @@ python app.py
 python -m services.jobs.worker
 ```
 
-The web process can be Waitress or Gunicorn instead of `python app.py`. See `docs/CAPACITY_RUNBOOK.md`. The Groq worker command stays `python -m services.jobs.worker`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`).
+The web process can be Waitress or Gunicorn instead of `python app.py`. See `docs/architecture/CAPACITY_RUNBOOK.md`. The Groq worker command stays `python -m services.jobs.worker`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`).
 
 - API base: `http://127.0.0.1:5000`
 - Interactive docs: `http://127.0.0.1:5000/apidocs/` (local `FLASK_ENV` only)
@@ -444,7 +448,7 @@ Rate-limit counters stay in database `finpilot_ratelimit`, not in these tables.
 
 ## Roadmap
 
-- This host does not meet the written pass lines for 100 concurrent health checks or 100 concurrent profile lists. Report enqueue does. Eighty lists while 10 report jobs were running, and the chat gate after chat was queued, are both still over 300 ms. It is not fair to say that about 100 people can load the app and list their profiles at once, or that a report no longer freezes those reads. Measurement: `docs/testing_reports/REMEDIATION_6_LOAD_TEST_REPORT.md`.
+- This host does not meet the written pass lines for 100 concurrent health checks or 100 concurrent profile lists. Report enqueue does. Eighty lists while 10 report jobs were running, and the chat gate after chat was queued, are both still over 300 ms. It is not fair to say that about 100 people can load the app and list their profiles at once, or that a report no longer freezes those reads. Measurement: `docs/execution/testing_reports/REMEDIATION_6_LOAD_TEST_REPORT.md`.
 - Support live market data for CAGR assumptions instead of static tiers.
 
 ---

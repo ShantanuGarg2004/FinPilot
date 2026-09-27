@@ -30,8 +30,8 @@ def test_health_reports_wave1_backend(client):
     res = c.get("/api/health")
     assert res.status_code == 200
     body = res.get_json()
-    assert body["ratelimit_backend"] == "memory"
     assert body["ratelimit_store_ok"] is True
+    assert "ratelimit_backend" not in body
 
 
 def test_options_never_429(client):

@@ -1,5 +1,8 @@
 import logging
+from datetime import date, datetime
+
 from flask import Flask, g, request, jsonify
+from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 from flask_limiter.errors import RateLimitExceeded
 from flasgger import Swagger
@@ -12,7 +15,7 @@ from routes.goal_routes import goal_bp
 from routes.auth_routes import auth_bp
 from database.models import create_tables
 from database.db import close_request_connection, ping_database
-from config import Config, recommended_worker_count
+from config import Config
 from services.actor import Actor, resolve_actor
 from services.rate_limit import build_gateway
 from services.rate_limit.gateway import get_gateway, is_application_api, is_public_docs, uses_custom_gateway
@@ -50,10 +53,20 @@ def _required_scope(method: str, path: str) -> str | None:
     return None
 
 
+class FinPilotJSONProvider(DefaultJSONProvider):
+    """Timestamps from PostgreSQL are datetimes. The API still speaks JSON."""
+
+    def default(self, o):
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        return super().default(o)
+
+
 def create_app():
     Config.validate()
 
     app = Flask(__name__)
+    app.json = FinPilotJSONProvider(app)
     CORS(
         app,
         resources={r"/api/*": {"origins": Config.CORS_ORIGINS}},
@@ -101,6 +114,16 @@ def create_app():
         g.actor = actor
         return actor
 
+    def _count_rejected_credential():
+        """A presented key that matched nothing counts against this address before the 401."""
+        gw = get_gateway()
+        if gw is None:
+            return None
+        decision = gw.note_rejected_credential(request.remote_addr or "")
+        if decision is not None and not decision.allowed:
+            return gw.denial_response(decision)
+        return None
+
     # ── Auth then rate-limit ───────────────────────────────────────────────
     @app.before_request
     def require_api_key():
@@ -122,6 +145,10 @@ def create_app():
             if not _local_env():
                 return jsonify({"error": "Not found", "code": "not_found"}), 404
             if _bind_actor() is None:
+                if getattr(g, "auth_error", None) == "unauthorized":
+                    denied = _count_rejected_credential()
+                    if denied is not None:
+                        return denied
                 return _unauthorized(challenge_docs=True)
             return
         if not is_application_api(request.path):
@@ -129,6 +156,9 @@ def create_app():
 
         if _bind_actor() is None:
             if getattr(g, "auth_error", None) == "unauthorized":
+                denied = _count_rejected_credential()
+                if denied is not None:
+                    return denied
                 return _unauthorized()
             return jsonify({
                 "error": "Your session ended. Sign in again.",
@@ -240,15 +270,8 @@ def create_app():
         status = "ok" if store_ok is not False and database_ok else "degraded"
         return jsonify({
             "status": status,
-            "ratelimit_enabled": Config.RATELIMIT_ENABLED,
-            "ratelimit_backend": Config.RATELIMIT_STORAGE_BACKEND,
-            "ratelimit_store_ok": store_ok,
-            "ratelimit_storage": Config.RATELIMIT_STORAGE_URI.split("://", 1)[0],
-            "groq_timeout_seconds": Config.GROQ_TIMEOUT_SECONDS,
-            "worker_timeout_seconds": Config.WORKER_TIMEOUT_SECONDS,
-            "recommended_workers": recommended_worker_count(),
             "database_ok": database_ok,
-            "database_backend": "postgresql" if database_ok else "unavailable",
+            "ratelimit_store_ok": store_ok,
         }), (200 if status == "ok" else 503)
 
     app.register_blueprint(auth_bp, url_prefix="/api")
@@ -266,6 +289,16 @@ def create_app():
     return app
 
 
+def serve():
+    """Local debugger only. A production-shaped environment exits before listen."""
+    if Config.FLASK_ENV not in ("development", "dev", "local"):
+        logger.error(
+            "This entrypoint is the local debugger. It does not listen outside a local environment."
+        )
+        raise SystemExit(1)
+    application = create_app()
+    application.run(debug=True)
+
+
 if __name__ == "__main__":
-    app = create_app()
-    app.run(debug=True)
+    serve()

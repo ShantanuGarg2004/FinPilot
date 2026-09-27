@@ -93,6 +93,35 @@ class RateLimitGateway:
             last_ok = decision
         return last_ok
 
+    def note_rejected_credential(self, remote_addr: str) -> LimitDecision | None:
+        """Count a presented key that matched nothing. The bucket is the client address."""
+        if not Config.RATELIMIT_ENABLED:
+            return None
+        address = (remote_addr or "").strip() or "unknown"
+        rule = self.policies.credential_failure
+        key = build_bucket_key(f"ip:{address}", rule.route_class)
+        try:
+            result = self.store.incr_and_check(key, rule.window_seconds, rule.limit)
+        except Exception:
+            logger.exception("rate limit store error for %s", rule.route_class)
+            return LimitDecision(
+                allowed=False,
+                route_class=rule.route_class,
+                limit=rule.limit,
+                remaining=0,
+                retry_after=30,
+                window_seconds=rule.window_seconds,
+                fail_open=False,
+            )
+        return LimitDecision(
+            allowed=result.allowed,
+            route_class=rule.route_class,
+            limit=result.limit,
+            remaining=result.remaining,
+            retry_after=result.retry_after,
+            window_seconds=result.window_seconds,
+        )
+
     def consume(self, req: Request, rule: LimitRule) -> LimitDecision | None:
         """Count one extra bucket. Used for PDF rebuild, which is not a cheap read."""
         if not Config.RATELIMIT_ENABLED:

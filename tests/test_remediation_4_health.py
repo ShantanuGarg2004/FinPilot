@@ -25,9 +25,14 @@ def test_health_is_ok_when_the_database_answers(tmp_path, monkeypatch):
     body = res.get_json()
     assert body["status"] == "ok"
     assert body["database_ok"] is True
-    assert body["database_backend"] == "postgresql"
+    assert body["ratelimit_store_ok"] is True
     assert "sqlite_busy_timeout_ms" not in body
     assert "database_url" not in body
+    assert "database_backend" not in body
+    assert "groq_timeout_seconds" not in body
+    assert "worker_timeout_seconds" not in body
+    assert "recommended_workers" not in body
+    assert "ratelimit_backend" not in body
 
 
 def test_health_is_degraded_when_the_database_ping_fails(tmp_path, monkeypatch):
@@ -38,7 +43,8 @@ def test_health_is_degraded_when_the_database_ping_fails(tmp_path, monkeypatch):
     body = res.get_json()
     assert body["status"] == "degraded"
     assert body["database_ok"] is False
-    assert body["database_backend"] == "unavailable"
+    assert body["ratelimit_store_ok"] is True
+    assert "database_backend" not in body
     assert "sqlite_busy_timeout_ms" not in body
 
 

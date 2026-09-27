@@ -54,6 +54,7 @@ class PolicyRegistry:
         self.llm_report = _rule("llm_report", Config.RATELIMIT_LLM_REPORT)
         self.llm_report_user = _rule("llm_report", Config.RATELIMIT_LLM_REPORT_USER, per_user=True)
         self.auth_attempt = _rule("auth_attempt", Config.RATELIMIT_AUTH)
+        self.credential_failure = _rule("credential_failure", Config.RATELIMIT_AUTH)
 
     def rules_for(self, method: str, path: str) -> list[LimitRule] | None:
         """Return rules to apply, [] for exempt, None if no policy (allow)."""

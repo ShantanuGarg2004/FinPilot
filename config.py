@@ -42,6 +42,8 @@ class Config:
     # Wave 3: Groq call budget. Worker/proxy timeout must be larger than this.
     GROQ_TIMEOUT_SECONDS = _env_int("GROQ_TIMEOUT_SECONDS", 90)
     WORKER_TIMEOUT_SECONDS = _env_int("WORKER_TIMEOUT_SECONDS", 120)
+    # Claim threads inside this one worker process. Extra processes each open a pool.
+    WORKER_CLAIM_THREADS = _env_int("WORKER_CLAIM_THREADS", 1)
     # In-flight LLM calls the process tier should absorb, plus spare workers for reads.
     PEAK_CONCURRENT_LLM = _env_int("PEAK_CONCURRENT_LLM", 4)
     WORKER_HEADROOM = _env_int("WORKER_HEADROOM", 2)
@@ -125,11 +127,30 @@ class Config:
             raise EnvironmentError(
                 "CORS_ORIGINS must list at least one frontend origin when FLASK_ENV is not local."
             )
+        if (
+            cls.FLASK_ENV not in ("development", "dev", "local")
+            and _is_local_database_default(cls.APP_DATABASE_URL)
+        ):
+            raise EnvironmentError(
+                "APP_DATABASE_URL is still the local default. Set a production database URL."
+            )
         if cls.WORKER_TIMEOUT_SECONDS <= cls.GROQ_TIMEOUT_SECONDS:
             raise EnvironmentError(
                 "WORKER_TIMEOUT_SECONDS must be greater than GROQ_TIMEOUT_SECONDS "
                 "so a slow Groq call returns upstream_timeout instead of a worker kill."
             )
+
+
+def _is_local_database_default(url: str | None) -> bool:
+    """True for the Compose database named finpilot when it still uses the dev password.
+
+    The test database is a different name, so the suite can keep using the local server.
+    """
+    raw = url or ""
+    if "finpilot_dev_password" not in raw:
+        return False
+    name = raw.rstrip("/").rsplit("/", 1)[-1].split("?")[0]
+    return name == "finpilot"
 
 
 def recommended_worker_count(

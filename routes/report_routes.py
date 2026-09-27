@@ -177,6 +177,15 @@ def download_report(user_id: int):
       404:
         description: No report found
     """
+    # Same body for a missing report and a profile this caller does not own.
+    missing = jsonify({
+        "error": "No report found. Generate one first.",
+        "code": "not_found",
+    })
+    profile = get_user_by_id(user_id)
+    if not profile:
+        return missing, 404
+
     pdf_bytes = _load_pdf_blob_from_db(user_id)
     if pdf_bytes:
         return send_file(
@@ -195,17 +204,7 @@ def download_report(user_id: int):
 
     stored = _load_report_from_db(user_id)
     if not stored:
-        return jsonify({
-            "error": "No report found. Generate one first.",
-            "code": "not_found",
-        }), 404
-
-    profile = get_user_by_id(user_id)
-    if not profile:
-        return jsonify({
-            "error": f"User profile #{user_id} not found",
-            "code": "not_found",
-        }), 404
+        return missing, 404
 
     ok, pdf_result = _build_pdf_bytes(profile, stored["health"], stored["ai_report"])
     if not ok:

@@ -225,7 +225,6 @@ def main(argv: list[str] | None = None) -> int:
             "status_code": health_status,
             "status": health_body.get("status"),
             "database_ok": health_body.get("database_ok"),
-            "database_backend": health_body.get("database_backend"),
             "ratelimit_store_ok": health_body.get("ratelimit_store_ok"),
         },
     }

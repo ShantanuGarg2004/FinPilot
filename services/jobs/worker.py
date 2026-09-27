@@ -7,9 +7,13 @@ Run as its own process:
 When GROQ_STUB is on, GROQ_STUB_HOLD_SECONDS keeps the claimed job in
 ``running`` before the stub returns. The web process does not wait. Tests
 leave the hold at 0.
+
+WORKER_CLAIM_THREADS is how many claim loops share this process. The default
+is 1, which is the loop below. Do not start extra worker processes for that.
 """
 import logging
 import os
+import threading
 import time
 
 from config import Config
@@ -136,6 +140,22 @@ def _run_chat(job: dict) -> None:
     logger.info("chat job %s succeeded for profile %s", job["id"], profile["id"])
 
 
+def claim_thread_count() -> int:
+    """How many claim loops run in this process. Never below 1."""
+    try:
+        count = int(Config.WORKER_CLAIM_THREADS)
+    except (TypeError, ValueError):
+        count = 1
+    return max(1, count)
+
+
+def _watch_forever() -> None:
+    while True:
+        job = process_once()
+        if job is None:
+            time.sleep(_IDLE_SECONDS)
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -144,11 +164,20 @@ def main() -> None:
     from database.models import create_tables
 
     create_tables()
-    logger.info("Report worker watching the jobs table")
-    while True:
-        job = process_once()
-        if job is None:
-            time.sleep(_IDLE_SECONDS)
+    count = claim_thread_count()
+    if count == 1:
+        logger.info("Report worker watching the jobs table")
+        _watch_forever()
+        return
+    logger.info("Report worker watching the jobs table with %s claim threads", count)
+    threads = [
+        threading.Thread(target=_watch_forever, name=f"finpilot-claim-{index}", daemon=True)
+        for index in range(count)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
 
 
 if __name__ == "__main__":

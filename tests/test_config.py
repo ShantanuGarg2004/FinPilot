@@ -37,6 +37,32 @@ def test_validate_no_longer_requires_openai_key(monkeypatch):
     assert config.Config.validate() is None
 
 
+def test_production_refuses_the_local_database_default(monkeypatch):
+    monkeypatch.setattr(config.Config, "FLASK_ENV", "production")
+    monkeypatch.setattr(config.Config, "CORS_ORIGINS", ["https://app.example"])
+    monkeypatch.setattr(
+        config.Config,
+        "APP_DATABASE_URL",
+        "postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot",
+    )
+    with pytest.raises(EnvironmentError) as excinfo:
+        config.Config.validate()
+    message = str(excinfo.value)
+    assert "local default" in message
+    assert "finpilot_dev_password" not in message
+    assert "127.0.0.1" not in message
+
+
+def test_local_env_still_accepts_the_compose_database(monkeypatch):
+    monkeypatch.setattr(config.Config, "FLASK_ENV", "development")
+    monkeypatch.setattr(
+        config.Config,
+        "APP_DATABASE_URL",
+        "postgresql+psycopg://finpilot:finpilot_dev_password@127.0.0.1:5432/finpilot",
+    )
+    assert config.Config.validate() is None
+
+
 def test_per_service_models_configured():
     assert config.Config.GROQ_REPORT_MODEL == "openai/gpt-oss-120b"
     assert config.Config.GROQ_CHAT_MODEL == "openai/gpt-oss-20b"

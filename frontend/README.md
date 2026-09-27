@@ -44,9 +44,9 @@ An account with no profiles yet sees “You are signed in and have no profiles y
 | `npm run build` | Production bundle |
 | `npm run preview` | Serves the production bundle |
 | `npm run lint` | ESLint |
-| `npm test` | Route guard and report-poll decisions. No Flask and no browser. |
+| `npm test` | Route guard, report-poll decisions, and advisory HTML escaping. No Flask and no browser. |
 
-`npm test` runs `node --test` on `src/lib/routes.test.js` and `src/lib/reportPoll.test.js`. Those files import plain functions. They do not start Vite.
+`npm test` runs `node --test` on `src/lib/routes.test.js`, `src/lib/reportPoll.test.js`, and `src/lib/markdownText.test.js`. Those files import plain functions. They do not start Vite.
 
 An optional browser check, not part of `npm test` and not required in CI, needs the dev server already running:
 

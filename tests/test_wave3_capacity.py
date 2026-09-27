@@ -56,6 +56,10 @@ def test_health_reports_capacity_settings(tmp_path, monkeypatch):
     res = app.test_client().get("/api/health")
     assert res.status_code == 200
     body = res.get_json()
-    assert body["worker_timeout_seconds"] > body["groq_timeout_seconds"]
-    assert body["recommended_workers"] >= 2
-    assert body["database_backend"] == "postgresql"
+    assert body["status"] == "ok"
+    assert body["database_ok"] is True
+    assert "worker_timeout_seconds" not in body
+    assert "groq_timeout_seconds" not in body
+    assert "recommended_workers" not in body
+    assert "database_backend" not in body
+    assert config.Config.WORKER_TIMEOUT_SECONDS > config.Config.GROQ_TIMEOUT_SECONDS

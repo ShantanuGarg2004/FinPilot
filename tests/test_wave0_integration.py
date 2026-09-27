@@ -42,7 +42,8 @@ def test_health_is_public_and_ok(api_client):
     assert res.status_code == 200
     body = res.get_json()
     assert body["status"] == "ok"
-    assert "ratelimit_enabled" in body
+    assert body["ratelimit_store_ok"] is True
+    assert "ratelimit_enabled" not in body
 
 
 def test_options_preflight_never_429(api_client):

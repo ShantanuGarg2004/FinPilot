@@ -1,4 +1,6 @@
 """Profile, report, and chat SQL. Routes call these functions."""
+import hashlib
+import hmac
 import json
 
 import secrets
@@ -154,8 +156,11 @@ def load_report(user_id: int) -> dict | None:
         ).fetchone()
     if not row:
         return None
+    health = row["health_json"]
+    if isinstance(health, str):
+        health = json.loads(health)
     return {
-        "health": json.loads(row["health_json"]),
+        "health": health,
         "ai_report": row["ai_report"],
         "pdf_ready": resolve(row["pdf_path"]) is not None,
     }
@@ -260,14 +265,15 @@ def issue_api_credential(account_id: int, label: str, scopes: list[str]) -> tupl
     with connection() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO api_credentials (account_id, label, key_hash, scopes)
-            VALUES (:account_id, :label, :key_hash, :scopes)
+            INSERT INTO api_credentials (account_id, label, key_hash, key_sha256, scopes)
+            VALUES (:account_id, :label, :key_hash, :key_sha256, :scopes)
             RETURNING id
             """,
             {
                 "account_id": int(account_id),
                 "label": name,
                 "key_hash": generate_password_hash(raw_key),
+                "key_sha256": _key_digest(raw_key),
                 "scopes": ",".join(clean),
             },
         )
@@ -288,26 +294,57 @@ def revoke_api_credential(credential_id: int) -> None:
         conn.commit()
 
 
+def _key_digest(raw_key: str) -> str:
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def _credential_row(row) -> dict:
+    return {
+        "id": row["id"],
+        "account_id": row["account_id"],
+        "label": row["label"],
+        "scopes": _credential_scopes(row["scopes"]),
+    }
+
+
 def find_active_api_credential(raw_key: str):
-    """Match a presented key to a live row. The raw key is not stored."""
+    """Match a presented key to a live row. The raw key is not stored.
+
+    New keys are found by an indexed SHA-256 digest. Rows issued before that
+    column existed still have only a password hash, and those are scanned
+    until they are reissued.
+    """
     if not raw_key:
         return None
+    digest = _key_digest(raw_key)
     with connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM api_credentials WHERE revoked_at IS NULL"
+        row = conn.execute(
+            """
+            SELECT id, account_id, label, scopes, key_sha256
+            FROM api_credentials
+            WHERE revoked_at IS NULL AND key_sha256 = :key_sha256
+            """,
+            {"key_sha256": digest},
+        ).fetchone()
+        if row is not None:
+            stored = row["key_sha256"] or ""
+            if len(stored) == len(digest) and hmac.compare_digest(stored, digest):
+                return _credential_row(row)
+            return None
+        legacy = conn.execute(
+            """
+            SELECT id, account_id, label, scopes, key_hash
+            FROM api_credentials
+            WHERE revoked_at IS NULL AND key_sha256 IS NULL
+            """
         ).fetchall()
-    for row in rows:
+    for old in legacy:
         try:
-            matches = check_password_hash(row["key_hash"], raw_key)
+            matches = check_password_hash(old["key_hash"], raw_key)
         except (TypeError, ValueError):
             matches = False
         if matches:
-            return {
-                "id": row["id"],
-                "account_id": row["account_id"],
-                "label": row["label"],
-                "scopes": _credential_scopes(row["scopes"]),
-            }
+            return _credential_row(old)
     return None
 
 
