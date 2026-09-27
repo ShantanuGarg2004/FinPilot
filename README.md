@@ -58,7 +58,7 @@ Reports are rendered to branded PDF documents on disk. Profiles, reports, chat, 
 PostgreSQL. The browser signs in with an email and password and keeps an HttpOnly session
 cookie. A scoped API key can call the same account. `API_SECRET_KEY` opens local Swagger only.
 A rate-limit gateway sits in front of the API, with its own PostgreSQL database. Swagger is on
-only when `FLASK_ENV` is local. Groq runs in `python -m services.jobs.worker`, not in the HTTP request.
+when `FLASK_ENV` is `development`, `dev`, or `local`. Groq runs in `python -m services.jobs.worker`, not in the HTTP request.
 
 ---
 
@@ -300,17 +300,17 @@ docker compose up -d
 
 The limiter schema is applied from `database/sql/rate_limit_schema.sql` on a new volume. The `finpilot` database is created when the API starts. `SQLITE_IMPORT` defaults off, so a normal start does not open `finance.db`. Set `BOOTSTRAP_ACCOUNT_EMAIL` and `BOOTSTRAP_ACCOUNT_PASSWORD` when existing profiles have no account.
 
-Run the API and the worker in two terminals:
+Run the API and the worker in two terminals when `FLASK_ENV` is `development`, `dev`, or `local`:
 
 ```bash
 python app.py
 python -m services.jobs.worker
 ```
 
-The web process can be Waitress or Gunicorn instead of `python app.py`. See `docs/architecture/CAPACITY_RUNBOOK.md`. The Groq worker command stays `python -m services.jobs.worker`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`).
+`python app.py` is the local debugger. Outside `development`, `dev`, or `local` it exits before it listens. Traffic on a host uses Waitress or Gunicorn. See `docs/architecture/CAPACITY_RUNBOOK.md`. The Groq worker command stays `python -m services.jobs.worker`. On Windows, Waitress; on Linux, Gunicorn. Install those only on the host that serves traffic (`pip install waitress` or `pip install gunicorn`).
 
 - API base: `http://127.0.0.1:5000`
-- Interactive docs: `http://127.0.0.1:5000/apidocs/` (local `FLASK_ENV` only)
+- Interactive docs: `http://127.0.0.1:5000/apidocs/` when `FLASK_ENV` is `development`, `dev`, or `local`
 
 Sign in from the React app. Swagger asks for HTTP Basic auth. The password is `API_SECRET_KEY`. Any username works. That password does not list profiles. A script uses a scoped key from `python scripts/issue_api_credential.py`.
 
@@ -346,7 +346,7 @@ Health, sign-up, sign-in, and sign-out are public. `/api/auth/me` needs the sess
 
 | Endpoint | Method | Who | Description |
 |---|---|---|---|
-| `/api/health` | GET | public | Liveness. `database_ok` is a `SELECT 1`. `503` when the app database is down. |
+| `/api/health` | GET | public | Liveness. Body is `status`, `database_ok`, and `ratelimit_store_ok`. `503` when the app database or the rate-limit store is down. |
 | `/apidocs/` | GET | local env + Basic password `API_SECRET_KEY` | Swagger UI |
 | `/api/auth/signup` | POST | public | Create an account and set the session cookie |
 | `/api/auth/login` | POST | public | Sign in and set the session cookie |
