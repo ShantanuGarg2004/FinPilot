@@ -1,0 +1,21 @@
+Feature,User Problem,Value,Usage Frequency,Current Status,UX Quality,Missing Pieces,Priority Candidate
+Landing page,Why create an account,Medium,Once per visitor,Exists,Strong page weak promise,Real first-run preview; privacy and terms,Medium
+Sign up,Own the financial snapshot,High,Once,Exists,Adequate,Consent; password rule before submit; email verification,Medium
+Sign in,Return to the same profiles and plan,High,Every return,Exists,Adequate,Password reset,High
+Sign out,End the session on a shared browser,Medium,Occasional,Exists,Adequate,None required for the current job,Low
+Create profile,Give the product monthly numbers,High,First session then rarely,Exists,Adequate,Edit in place; a clear name for a second profile,High
+Select profile,Choose which snapshot the app uses,High,Every session when more than one exists,Exists,Adequate,Explain what a second profile is for,Medium
+Delete profile,Remove a snapshot,Medium,Rare,Partial,Weak,Confirmation and undo,High
+Dashboard,See standing and where to go next,High,Every session,Exists,Strong after a report; weak before,Score before the AI job,High
+Health score,Judge whether the monthly picture is okay,High,Every session after a report,Partial,Good when shown,Show on save; show the scoring assumptions,High
+AI advisory report,Decide what to do next,High,First session then rare,Exists,Strong,Keep the previous version; cite named products,High
+PDF download,Take the plan out of the browser,Medium,Occasional,Exists,Adequate,Clearer file-not-ready state,Low
+Advisor chat,Ask a follow-up without retyping numbers,Medium,Occasional,Exists,Adequate,Include the score and the latest goal in context,Medium
+Clear chat,Discard the conversation,Low,Rare,Exists,Weak,Confirmation,Low
+Goal simulator,See if savings can fund a target,High,Occasional,Partial,Mixed,Save the run; drop the AI label; fix the fallback bar,High
+Quick actions,Jump to report chat or goals,Low,First session,Exists,Adequate,None,Low
+Search,Find a profile report or message,None today,Never,Not a feature,Non-functional,Remove until there is something to find,High to remove
+Notifications,Hear that something changed,None today,Never,Not a feature,Non-functional,Remove until a real alert exists,High to remove
+Settings,Manage password export or account deletion,None today,Never,Not a feature,Non-functional,Replace with real account tools or remove the icon,High to replace
+Upgrade to Elite,Pay for a higher plan,None today,Never,Not a feature,Non-functional,Define an offer or remove the button,High to remove
+Wait and error feedback,Know whether to wait retry or give up,Medium,When a job is slow or fails,Exists,Adequate,Customer language for a down worker and for quotas,Medium
