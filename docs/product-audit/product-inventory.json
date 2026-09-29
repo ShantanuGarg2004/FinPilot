@@ -1,0 +1,295 @@
+{
+  "inspected_on": "2026-09-28",
+  "method": "Repository inspection of routes, pages, services, models, and customer-facing copy. No runtime product analytics.",
+  "status_values": ["exists", "partial", "planned-not-implemented", "missing"],
+  "classification_values": ["core", "supporting", "peripheral", "infrastructure-only"],
+  "items": [
+    {
+      "id": "landing",
+      "name": "Marketing landing page",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "Understand the promise and open sign-up or sign-in",
+      "evidence": ["frontend/src/pages/LoginPage.jsx"]
+    },
+    {
+      "id": "signup",
+      "name": "Email and password sign-up",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "Create an account and receive a session cookie",
+      "evidence": ["routes/auth_routes.py", "frontend/src/pages/LoginPage.jsx", "schemas.py"]
+    },
+    {
+      "id": "signin",
+      "name": "Sign-in",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "Return to the account for 12 hours",
+      "evidence": ["routes/auth_routes.py", "services/sessions.py"]
+    },
+    {
+      "id": "signout",
+      "name": "Sign-out",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "End the session",
+      "evidence": ["frontend/src/components/layout/Sidebar.jsx", "routes/auth_routes.py"]
+    },
+    {
+      "id": "email-verification",
+      "name": "Email verification",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "missing",
+      "surface": "customer",
+      "notes": "Signup is open. docs/planning/ARCHITECTURE_REVIEW_FOLLOWUP_PLAN.md says email verification is not part of that plan.",
+      "evidence": ["routes/auth_routes.py"]
+    },
+    {
+      "id": "password-reset",
+      "name": "Password reset",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "missing",
+      "surface": "customer",
+      "evidence": []
+    },
+    {
+      "id": "profile-create",
+      "name": "Financial profile creation",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "Store age, monthly income, expenses, savings, optional EMI, risk, and a free-text goal",
+      "evidence": ["frontend/src/sections/profile/ProfileForm.jsx", "routes/user_routes.py", "schemas.py"]
+    },
+    {
+      "id": "profile-edit",
+      "name": "Edit a saved profile",
+      "kind": "feature",
+      "classification": "core",
+      "status": "missing",
+      "surface": "customer",
+      "notes": "Profiles can be created and deleted. No update route or edit form was found.",
+      "evidence": ["routes/user_routes.py"]
+    },
+    {
+      "id": "profile-delete",
+      "name": "Delete a profile",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "Delete works. No confirmation dialog was found.",
+      "evidence": ["frontend/src/sections/profile/SavedProfiles.jsx", "routes/user_routes.py"]
+    },
+    {
+      "id": "multi-profile",
+      "name": "Several profiles on one account",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "notes": "Whether a profile means a person, a household member, or a scenario is UNKNOWN. The title shown is the goal text.",
+      "evidence": ["frontend/src/pages/ProfilePage.jsx", "frontend/src/lib/format.js"]
+    },
+    {
+      "id": "health-score",
+      "name": "Seven-pillar financial health score",
+      "kind": "feature",
+      "classification": "core",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "The score is rule-based and does not call the model. The customer sees it only after an AI report job succeeds. The dashboard empty state says to generate a report to unlock the score.",
+      "evidence": ["services/health_service.py", "frontend/src/pages/DashboardPage.jsx"]
+    },
+    {
+      "id": "ai-advisory",
+      "name": "AI advisory report",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "customer_outcome": "A written report grounded in the profile and the health score, one saved report per profile",
+      "evidence": ["services/ai_service.py", "frontend/src/pages/AdvisoryPage.jsx", "services/jobs/worker.py"]
+    },
+    {
+      "id": "pdf-report",
+      "name": "PDF download",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "exists",
+      "surface": "customer",
+      "notes": "Text can be saved when the PDF file is not ready. The customer is told to download to build it.",
+      "evidence": ["services/pdf_service.py", "routes/report_routes.py"]
+    },
+    {
+      "id": "advisor-chat",
+      "name": "Advisor chat",
+      "kind": "feature",
+      "classification": "core",
+      "status": "exists",
+      "surface": "customer",
+      "notes": "History is stored per profile. The model sees the profile and a recent slice of that chat. Suggested prompts exist.",
+      "evidence": ["frontend/src/pages/ChatPage.jsx", "services/ai_service.py", "routes/chat_routes.py"]
+    },
+    {
+      "id": "goal-simulator",
+      "name": "Goal feasibility simulator",
+      "kind": "feature",
+      "classification": "core",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "Runs in the request with static CAGR tiers and Indian product names. The result is kept in browser memory for the profile, not in the database. The screen labels the rule-based score as Pilot AI Confidence Score. Balanced is always marked Recommended in the UI.",
+      "evidence": ["services/goal_service.py", "frontend/src/pages/GoalsPage.jsx", "frontend/src/lib/goalStore.js"]
+    },
+    {
+      "id": "live-market-data",
+      "name": "Live market data for CAGR",
+      "kind": "feature",
+      "classification": "core",
+      "status": "planned-not-implemented",
+      "surface": "customer",
+      "notes": "README roadmap item. The calculator uses fixed tiers.",
+      "evidence": ["README.md", "services/goal_service.py"]
+    },
+    {
+      "id": "async-jobs",
+      "name": "Background report and chat jobs",
+      "kind": "service",
+      "classification": "infrastructure-only",
+      "status": "exists",
+      "surface": "customer",
+      "notes": "The customer sees Generating or Analyzing, then a result or a failure. A separate worker process must be running.",
+      "evidence": ["services/jobs/worker.py", "frontend/src/hooks/useReport.js", "frontend/src/hooks/useChat.js"]
+    },
+    {
+      "id": "rate-limits",
+      "name": "Usage quotas",
+      "kind": "service",
+      "classification": "infrastructure-only",
+      "status": "exists",
+      "surface": "customer",
+      "notes": "Defaults include 5 report generations per minute and 10 per hour per profile, and 15 chats per minute and 60 per hour per profile. The customer is told to wait, not what the allowance is.",
+      "evidence": ["config.py", "frontend/src/lib/apiErrors.js"]
+    },
+    {
+      "id": "session-cookie",
+      "name": "HttpOnly session",
+      "kind": "service",
+      "classification": "infrastructure-only",
+      "status": "exists",
+      "surface": "customer",
+      "evidence": ["services/sessions.py"]
+    },
+    {
+      "id": "scoped-api-keys",
+      "name": "Scoped API keys",
+      "kind": "capability",
+      "classification": "infrastructure-only",
+      "status": "exists",
+      "surface": "operator",
+      "notes": "Issued by a script. Not exposed in the React app.",
+      "evidence": ["scripts/issue_api_credential.py"]
+    },
+    {
+      "id": "search",
+      "name": "Search",
+      "kind": "feature",
+      "classification": "peripheral",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "A search field is rendered in the top bar. No search behavior was found.",
+      "evidence": ["frontend/src/components/layout/TopBar.jsx"]
+    },
+    {
+      "id": "notifications",
+      "name": "Notifications",
+      "kind": "feature",
+      "classification": "peripheral",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "A notification icon is rendered. It has no action. No notification store was found.",
+      "evidence": ["frontend/src/components/layout/TopBar.jsx"]
+    },
+    {
+      "id": "settings",
+      "name": "Settings",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "A settings icon is rendered. It has no action. No settings page was found.",
+      "evidence": ["frontend/src/components/layout/TopBar.jsx"]
+    },
+    {
+      "id": "elite-upgrade",
+      "name": "Upgrade to Elite",
+      "kind": "feature",
+      "classification": "peripheral",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "A button is rendered in the sidebar. It has no action. No plan, price, or billing implementation was found. No planning document naming Elite was found.",
+      "evidence": ["frontend/src/components/layout/Sidebar.jsx"]
+    },
+    {
+      "id": "billing",
+      "name": "Billing and plans",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "missing",
+      "surface": "customer",
+      "notes": "Landing copy says Create your free account. No payment provider was found.",
+      "evidence": ["frontend/src/pages/LoginPage.jsx"]
+    },
+    {
+      "id": "privacy-terms",
+      "name": "Privacy policy and terms",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "missing",
+      "surface": "customer",
+      "evidence": ["frontend/src/pages/LoginPage.jsx"]
+    },
+    {
+      "id": "disclaimers",
+      "name": "Financial disclaimers",
+      "kind": "feature",
+      "classification": "supporting",
+      "status": "partial",
+      "surface": "customer",
+      "notes": "Advisory page and the PDF carry a short disclaimer. Chat says the AI can make mistakes. Goals and the landing page do not carry that advisory disclaimer. Legal sufficiency is UNKNOWN and needs legal review.",
+      "evidence": ["frontend/src/pages/AdvisoryPage.jsx", "services/pdf_service.py", "frontend/src/pages/ChatPage.jsx"]
+    },
+    {
+      "id": "product-analytics",
+      "name": "Product analytics",
+      "kind": "capability",
+      "classification": "infrastructure-only",
+      "status": "missing",
+      "surface": "operator",
+      "notes": "No product analytics SDK was found in the frontend.",
+      "evidence": []
+    },
+    {
+      "id": "bank-linking",
+      "name": "Bank or account aggregation",
+      "kind": "feature",
+      "classification": "core",
+      "status": "missing",
+      "surface": "customer",
+      "notes": "Figures are typed by the customer. No aggregator was found.",
+      "evidence": ["frontend/src/sections/profile/ProfileForm.jsx"]
+    }
+  ]
+}
