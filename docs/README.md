@@ -7,6 +7,7 @@ Files under `docs/` are grouped by what they are for.
 How the running system works.
 
 - `ARCHITECTURE.md` — request path, worker, and databases
+- `NEW_DEVICE_SETUP.md` — clone, Docker, `.env`, Waitress, the worker, and the frontend on a new machine
 - `AUTH_ARCHITECTURE.md` — cookie, scoped key, and the docs password
 - `CAPACITY_RUNBOOK.md` — Waitress or Gunicorn, threads, and timeouts
 - `APP_DATABASE_POSTGRES.md` — the application database
@@ -42,4 +43,22 @@ What was built, and the reports from running it.
 - `GROQ_PATH_B_IMPLEMENTATION_REPORT.md` — what the Groq move changed
 - `testing_reports/` — one report for each quality wave, remediation issue, the database move, and each review follow-up
 
-`architecture/ARCHITECTURE.md` is the current system. `planning/` is the order the work was planned.
+## product-audit
+
+What the running product is, judged from the repository. These are reviews, not setup steps.
+
+- `01-product-360-audit.md` — product identity, journey, and maturity
+- `02-feature-service-audit.md` — feature map
+- `feature-matrix.csv` — the same features in a table
+- `03-personas-jtbd.md` — personas and jobs
+- `04-ux-audit.md` — screen-by-screen UX
+- `user-flows.md` — workflows and the proposed first session
+- `05-ui-design-system-audit.md` — visual audit
+- `design-system.md` — the tokens and components that exist
+- `06-ai-product-audit.md` — what the model actually receives and returns
+- `07-trust-safety-audit.md` — scores, advice, and data claims
+- `08-product-metrics.md` — what can be measured
+- `09-monetization-packaging.md` — units the product could charge for
+- `product-inventory.json` — structured inventory
+
+`architecture/ARCHITECTURE.md` is the current system. `architecture/NEW_DEVICE_SETUP.md` is how to run it on a new machine. `planning/` is the order the work was planned.
